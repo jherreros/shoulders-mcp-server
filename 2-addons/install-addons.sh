@@ -1,8 +1,11 @@
 #!/bin/bash
 
 set -o errexit
+set -o nounset
+set -o pipefail
 
 CILIUM_VERSION="1.19.1"
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 
 # Cilium
 helm repo add cilium https://helm.cilium.io/
@@ -31,10 +34,19 @@ fi
 if ! flux get kustomization flux-system &> /dev/null
 then
     echo "Installing FluxCD..."
-    cd "$(dirname "$0")"
+    cd "$SCRIPT_DIR"
     flux install
     kubectl apply -f flux/
 else
     echo "FluxCD already installed. Reconciling..."
     flux reconcile kustomization flux-system --with-source
 fi
+
+echo "Waiting for Dex deployment..."
+until kubectl -n dex get deploy dex >/dev/null 2>&1; do
+    sleep 5
+done
+
+kubectl -n dex rollout status deploy/dex --timeout=10m
+
+"$SCRIPT_DIR/../1-cluster/configure-apiserver-oidc.sh"

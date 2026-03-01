@@ -1,0 +1,77 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: dex
+  namespace: dex
+spec:
+  interval: 5m
+  chart:
+    spec:
+      chart: dex
+      sourceRef:
+        kind: HelmRepository
+        name: dex
+        namespace: flux-system
+  values:
+    https:
+      enabled: true
+    config:
+      issuer: https://dex.127.0.0.1.sslip.io
+
+      storage:
+        type: memory
+
+      web:
+        http: 0.0.0.0:5556
+        https: 0.0.0.0:5554
+        tlsCert: /tls/tls.crt
+        tlsKey: /tls/tls.key
+
+      staticClients:
+        - id: grafana
+          name: Grafana
+          secret: grafana-dex-secret
+          redirectURIs:
+            - http://grafana.localhost/login/generic_oauth
+
+        - id: kubernetes
+          name: Kubernetes
+          secret: headlamp-dex-secret
+          redirectURIs:
+            - http://headlamp.localhost/oidc-callback
+
+      enablePasswordDB: true
+
+      staticPasswords:
+        - email: admin@example.com
+          # bcrypt hash for "password"
+          hash: "$2b$12$c2naqES1ExlGoq0Jp3Dz7e3x0L62DMGcolpXvRA0F/xbnEx.3.TvG"
+          username: admin
+          userID: "1"
+
+        - email: developer@example.com
+          hash: "$2b$12$c2naqES1ExlGoq0Jp3Dz7e3x0L62DMGcolpXvRA0F/xbnEx.3.TvG"
+          username: developer
+          userID: "2"
+
+        - email: viewer@example.com
+          hash: "$2b$12$c2naqES1ExlGoq0Jp3Dz7e3x0L62DMGcolpXvRA0F/xbnEx.3.TvG"
+          username: viewer
+          userID: "3"
+
+      connectors: []
+    volumes:
+      - name: dex-tls
+        secret:
+          secretName: dex-tls
+    volumeMounts:
+      - name: dex-tls
+        mountPath: /tls
+        readOnly: true
+    service:
+      clusterIP: 10.96.0.24
+      ports:
+        http:
+          port: 5556
+        https:
+          port: 443

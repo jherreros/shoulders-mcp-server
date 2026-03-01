@@ -12,3 +12,14 @@ spec:
       allowedRoutes:
         namespaces:
           from: All
+    - name: dex-https
+      protocol: HTTPS
+      port: 443
+      hostname: dex.127.0.0.1.sslip.io
+      tls:
+        certificateRefs:
+          - kind: Secret
+            name: dex-tls
+      allowedRoutes:
+        namespaces:
+          from: All

@@ -56,8 +56,15 @@ go build -o shoulders
 ### Platform
 ```bash
 ./shoulders status
-./shoulders dashboard
-./shoulders headlamp
+./shoulders dashboard                 # Opens grafana.localhost (falls back to localhost:3000)
+./shoulders headlamp                  # Opens headlamp.localhost (falls back to localhost:4466)
+```
+
+`*.localhost` access requires host port `80` to be available when the cluster is created. If you changed these settings, recreate the cluster:
+
+```bash
+./shoulders down
+./shoulders up
 ```
 
 ## Configuration

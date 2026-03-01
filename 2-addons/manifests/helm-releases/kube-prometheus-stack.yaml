@@ -4,6 +4,9 @@ metadata:
   name: kube-prometheus-stack
   namespace: observability
 spec:
+  dependsOn:
+    - name: dex
+      namespace: dex
   interval: 5m
   chart:
     spec:
@@ -14,6 +17,24 @@ spec:
         namespace: flux-system
   values:
     grafana:
+      assertNoLeakedSecrets: false
+      grafana.ini:
+        server:
+          root_url: http://grafana.localhost
+        auth:
+          disable_login_form: false
+        auth.generic_oauth:
+          enabled: true
+          name: Dex
+          allow_sign_up: true
+          client_id: grafana
+          client_secret: grafana-dex-secret
+          scopes: openid email profile groups offline_access
+          auth_url: https://dex.127.0.0.1.sslip.io/auth
+          token_url: http://dex.dex.svc.cluster.local:5556/token
+          api_url: http://dex.dex.svc.cluster.local:5556/userinfo
+          use_pkce: true
+          role_attribute_path: "contains(groups[*], 'admin') && 'Admin' || contains(groups[*], 'developers') && 'Editor' || 'Viewer'"
       additionalDataSources:
         - name: Loki
           type: loki

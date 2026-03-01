@@ -49,6 +49,7 @@ spec:
   interval: 10m
   path: ./2-addons/manifests/helm-releases
   prune: true
+  wait: true
   sourceRef:
     kind: GitRepository
     name: flux-system

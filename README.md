@@ -24,9 +24,9 @@ Shoulders follows a multi-layered approach:
 Creates a three-node Kubernetes cluster using **kind** (Kubernetes in Docker) for local development with the default CNI disabled so Cilium can take over.
 
 ### 2. Addons Layer (`2-addons/`)
-Installs platform components using **FluxCD** for GitOps-based deployment. Flux Kustomizations enforce install order: helm repositories → namespaces → helm releases → crossplane → gateway → headlamp.
+Installs platform components using **FluxCD** for GitOps-based deployment. Flux Kustomizations enforce install order: helm repositories → namespaces → helm releases → crossplane → gateway → dex → headlamp.
 
-- **Helm Repositories & Releases** — Core platform software (Cilium, Crossplane, CloudNativePG, Strimzi, Kyverno, Prometheus stack, Loki, Tempo, Alloy, Headlamp).
+- **Helm Repositories & Releases** — Core platform software (Cilium, Crossplane, CloudNativePG, Strimzi, Kyverno, Prometheus stack, Loki, Tempo, Alloy, Dex, Headlamp).
 - **Crossplane Abstractions** — XRDs, Compositions, and Functions that define the developer-facing API.
 - **Gateway** — Gateway API CRDs and a Cilium-backed `Gateway` resource for HTTP routing.
 - **Headlamp** — Developer portal with the Shoulders plugin loaded via `pluginsManager`.
@@ -54,6 +54,7 @@ A Headlamp plugin that renders a self-service UI for Shoulders resources inside 
 | [Strimzi](https://strimzi.io) | Kubernetes-native Apache Kafka operator |
 | [CloudNativePG](https://cloudnative-pg.io) | PostgreSQL operator for Kubernetes |
 | [Kyverno](https://kyverno.io) | Policy-as-code for security and governance |
+| [Dex](https://dexidp.io) | OIDC identity provider for SSO into Grafana and Headlamp |
 | [Headlamp](https://headlamp.dev) | Kubernetes web UI, extended via the Shoulders portal plugin |
 
 ## Quick Start
@@ -69,6 +70,8 @@ curl -fsSL https://raw.githubusercontent.com/jherreros/shoulders/main/scripts/in
 ```bash
 shoulders up
 ```
+
+Note: Shoulders maps kind control-plane ports `80` and `443` to your host to enable local routing for Dex, Grafana, and Headlamp. Ensure those host ports are free before running `shoulders up`.
 
 This will:
 1. Create a local kind cluster named `shoulders`.
@@ -111,8 +114,8 @@ shoulders cluster list                  # List local kind clusters
 shoulders cluster use <name>            # Switch context to a cluster
 
 shoulders logs <app-name>               # Fetch logs (Loki if available, else pod logs)
-shoulders dashboard                     # Open Grafana (port-forward to localhost:3000)
-shoulders headlamp                      # Open Headlamp (port-forward to localhost:4466)
+shoulders dashboard                     # Open Grafana (prefers OIDC at grafana.localhost; falls back to localhost:3000)
+shoulders headlamp                      # Open Headlamp (prefers OIDC at headlamp.localhost; falls back to localhost:4466)
 ```
 
 Global flags: `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
@@ -240,13 +243,34 @@ Shoulders comes with a pre-configured observability stack:
 - **[Tempo](https://grafana.com/oss/tempo/)** — Distributed tracing.
 - **[Grafana Alloy](https://grafana.com/oss/alloy/)** — Unified collector for logs, metrics, and traces.
 
+## Identity and Access
+
+Shoulders ships with **Dex** as the OIDC identity provider. Grafana and Headlamp are configured to authenticate via Dex.
+
+Dex is exposed over HTTPS at `https://dex.127.0.0.1.sslip.io`. The repository includes a development CA for that local issuer, so browsers and other host-side tooling need to trust the certificate embedded in `1-cluster/authentication-config.yaml` or visit Dex once and accept the warning during local development.
+
+Default sample users:
+
+- `admin@example.com` / `password`
+- `developer@example.com` / `password`
+- `viewer@example.com` / `password`
+
 ### Accessing Grafana
 
 ```bash
 shoulders dashboard
 ```
 
-This port-forwards to `localhost:3000`, prints the Grafana credentials, and opens the browser. The admin password can also be retrieved manually:
+This command first tries `http://grafana.localhost` (OIDC via Dex) and opens it in your browser. If that host is not reachable, it falls back to local port-forward mode at `http://localhost:3000` and prints Grafana admin credentials.
+
+If you changed cluster networking settings, recreate the cluster for host-port mappings to take effect:
+
+```bash
+shoulders down
+shoulders up
+```
+
+If needed, the Grafana admin password can also be retrieved manually:
 
 ```bash
 kubectl get secret -n observability kube-prometheus-stack-grafana -o jsonpath='{.data.admin-password}' | base64 -d
@@ -260,7 +284,7 @@ The developer portal is delivered as the **Shoulders Headlamp plugin** (`shoulde
 shoulders headlamp
 ```
 
-This command prints a login token, starts a port-forward, and opens Headlamp at `http://localhost:4466/shoulders`.
+This command first tries `http://headlamp.localhost` (OIDC via Dex) and opens it in your browser. If that host is not reachable, it falls back to local port-forward mode at `http://localhost:4466`.
 
 ### Local plugin development
 
@@ -307,6 +331,7 @@ shoulders/
 │   ├── install-addons.sh          # Addon installation script (Cilium + Flux)
 │   └── manifests/
 │       ├── crossplane/            # XRDs, Compositions, Functions, RBAC
+│       ├── dex/                    # Dex and HTTPRoutes for OIDC host routing
 │       ├── gateway/               # Gateway API CRDs + Cilium Gateway
 │       ├── headlamp/              # Headlamp RBAC
 │       ├── helm-releases/         # Helm chart deployments

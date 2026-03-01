@@ -14,8 +14,19 @@ var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
 	Short: "Open Grafana dashboard",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		const grafanaOIDCURL = "http://grafana.localhost"
+
+		if isHostPortReachable("grafana.localhost", "80", 1500*time.Millisecond) {
+			cmd.Printf("Opening Grafana via Gateway OIDC at %s\n", grafanaOIDCURL)
+			cmd.Printf("Sign in with Dex users (for example: admin@example.com / password).\n")
+			if err := openBrowser(grafanaOIDCURL); err == nil {
+				return nil
+			}
+		}
+
 		ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
 		defer stop()
+		cmd.Printf("Grafana Gateway URL not reachable; falling back to local port-forward on http://localhost:3000\n")
 
 		stopCh, _, err := kube.PortForwardService(ctx, kubeconfig, "observability", "kube-prometheus-stack-grafana", 3000, 80)
 		if err != nil {
