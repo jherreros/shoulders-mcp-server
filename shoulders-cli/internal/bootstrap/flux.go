@@ -5,15 +5,13 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"os"
-	"path/filepath"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 )
 
 const fluxInstallURL = "https://github.com/fluxcd/flux2/releases/download/v2.6.4/install.yaml"
 
-func EnsureFlux(ctx context.Context, kubeconfigPath, repoRoot string) error {
+func EnsureFlux(ctx context.Context, kubeconfigPath string, fluxManifests ...[]byte) error {
 	manifest, err := downloadFluxManifest(ctx)
 	if err != nil {
 		return err
@@ -22,16 +20,9 @@ func EnsureFlux(ctx context.Context, kubeconfigPath, repoRoot string) error {
 		return fmt.Errorf("apply flux install manifest: %w", err)
 	}
 
-	fluxDir := filepath.Join(repoRoot, "2-addons", "flux")
-	files := []string{"git-repository.yaml", "kustomizations.yaml"}
-	for _, name := range files {
-		path := filepath.Join(fluxDir, name)
-		content, err := os.ReadFile(path)
-		if err != nil {
-			return err
-		}
+	for _, content := range fluxManifests {
 		if err := kube.ApplyManifest(ctx, kubeconfigPath, content, "flux-system"); err != nil {
-			return fmt.Errorf("apply flux config %s: %w", name, err)
+			return fmt.Errorf("apply flux config: %w", err)
 		}
 	}
 	return nil

@@ -83,19 +83,36 @@ var statusCmd = &cobra.Command{
 		// 5. Gateway
 		gwReady := false
 		gwAddr := "Pending"
+		gwProgrammed := false
 		gvrGW := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
-		gwList, err := dynamicClient.Resource(gvrGW).Namespace("gateway").List(ctx, v1.ListOptions{})
+		gwList, err := dynamicClient.Resource(gvrGW).Namespace("kube-system").List(ctx, v1.ListOptions{})
 		if err == nil && len(gwList.Items) > 0 {
-			// Check the first gateway found (usually 'main')
 			gw := gwList.Items[0]
-			gwReady = true // Simplified check
 
-			// Try to find address in status
+			// Check the Programmed condition
 			if status, ok := gw.Object["status"].(map[string]interface{}); ok {
+				if conditions, ok := status["conditions"].([]interface{}); ok {
+					for _, c := range conditions {
+						cond, _ := c.(map[string]interface{})
+						if fmt.Sprintf("%v", cond["type"]) == "Programmed" && fmt.Sprintf("%v", cond["status"]) == "True" {
+							gwProgrammed = true
+							gwReady = true
+						}
+					}
+				}
 				if addrs, ok := status["addresses"].([]interface{}); ok && len(addrs) > 0 {
 					if addrMap, ok := addrs[0].(map[string]interface{}); ok {
 						gwAddr = fmt.Sprintf("%v", addrMap["value"])
 					}
+				}
+			}
+		}
+
+		if !gwProgrammed {
+			if svc, err := clientset.CoreV1().Services("kube-system").Get(ctx, "cilium-gateway-cilium-gateway", v1.GetOptions{}); err == nil {
+				if svc.Spec.Type == corev1.ServiceTypeClusterIP {
+					gwReady = true
+					gwAddr = "localhost"
 				}
 			}
 		}

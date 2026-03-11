@@ -2,6 +2,8 @@ package bootstrap
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"time"
 
 	"sigs.k8s.io/kind/pkg/cluster"
@@ -10,7 +12,7 @@ import (
 
 const DefaultClusterName = "shoulders"
 
-func EnsureKindCluster(name, configPath string) error {
+func EnsureKindCluster(name string, kindConfig []byte) error {
 	provider, err := newProvider()
 	if err != nil {
 		return err
@@ -24,6 +26,19 @@ func EnsureKindCluster(name, configPath string) error {
 			return nil
 		}
 	}
+
+	// Write the embedded config to a temp file for the kind library
+	tmpDir, err := os.MkdirTemp("", "shoulders-kind-*")
+	if err != nil {
+		return fmt.Errorf("create temp dir: %w", err)
+	}
+	defer os.RemoveAll(tmpDir)
+
+	configPath := filepath.Join(tmpDir, "kind-config.yaml")
+	if err := os.WriteFile(configPath, kindConfig, 0o644); err != nil {
+		return fmt.Errorf("write kind config: %w", err)
+	}
+
 	return provider.Create(
 		name,
 		cluster.CreateWithConfigFile(configPath),

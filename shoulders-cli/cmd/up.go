@@ -3,13 +3,12 @@ package cmd
 import (
 	"context"
 	"fmt"
-	"path/filepath"
 	"time"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/bootstrap"
-	"github.com/jherreros/shoulders/shoulders-cli/internal/cli"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/flux"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
+	"github.com/jherreros/shoulders/shoulders-cli/internal/manifests"
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 )
@@ -20,19 +19,16 @@ var upCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Create the local cluster and install platform addons",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		repoRoot, err := cli.FindRepoRoot()
-		if err != nil {
-			return err
-		}
-
-		configPath := filepath.Join(repoRoot, "1-cluster", "kind-config.yaml")
-		if err := bootstrap.EnsureKindCluster(upClusterName, configPath); err != nil {
+		if err := bootstrap.EnsureKindCluster(upClusterName, manifests.KindConfig); err != nil {
 			return fmt.Errorf("failed to create kind cluster: %w", err)
 		}
 		if err := bootstrap.EnsureCilium(kubeconfig); err != nil {
 			return fmt.Errorf("failed to install cilium: %w", err)
 		}
-		if err := bootstrap.EnsureFlux(context.Background(), kubeconfig, repoRoot); err != nil {
+		if err := bootstrap.EnsureFlux(context.Background(), kubeconfig,
+			manifests.FluxGitRepository,
+			manifests.FluxKustomizations,
+		); err != nil {
 			return fmt.Errorf("failed to install flux: %w", err)
 		}
 
@@ -45,6 +41,10 @@ var upCmd = &cobra.Command{
 			return err
 		}
 		spinner.Success("Flux reconciliation complete")
+
+		if err := bootstrap.RestartCiliumWorkloads(kubeconfig); err != nil {
+			return fmt.Errorf("failed to restart cilium after flux reconciliation: %w", err)
+		}
 		return nil
 	},
 }
