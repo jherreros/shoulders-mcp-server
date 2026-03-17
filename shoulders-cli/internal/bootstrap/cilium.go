@@ -44,6 +44,8 @@ func EnsureCilium(kubeconfigPath string) error {
 	}
 
 	values := map[string]interface{}{
+		"k8sServiceHost": "shoulders-control-plane",
+		"k8sServicePort": 6443,
 		"kubeProxyReplacement": true,
 		"image": map[string]interface{}{
 			"pullPolicy": "IfNotPresent",
@@ -82,8 +84,10 @@ func EnsureCilium(kubeconfigPath string) error {
 	install.Namespace = settings.Namespace()
 	install.CreateNamespace = true
 	install.Version = ciliumVersion
-	_, err = install.Run(chart, values)
-	return err
+	if _, err = install.Run(chart, values); err != nil {
+		return err
+	}
+	return nil
 }
 
 func RestartCiliumWorkloads(kubeconfigPath string) error {

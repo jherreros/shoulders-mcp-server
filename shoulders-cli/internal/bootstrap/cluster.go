@@ -1,6 +1,7 @@
 package bootstrap
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -12,7 +13,7 @@ import (
 
 const DefaultClusterName = "shoulders"
 
-func EnsureKindCluster(name string, kindConfig []byte) error {
+func EnsureKindCluster(name string, kindConfig []byte) (err error) {
 	provider, err := newProvider()
 	if err != nil {
 		return err
@@ -32,7 +33,11 @@ func EnsureKindCluster(name string, kindConfig []byte) error {
 	if err != nil {
 		return fmt.Errorf("create temp dir: %w", err)
 	}
-	defer os.RemoveAll(tmpDir)
+	defer func() {
+		if removeErr := os.RemoveAll(tmpDir); removeErr != nil {
+			err = errors.Join(err, fmt.Errorf("remove temp dir %q: %w", tmpDir, removeErr))
+		}
+	}()
 
 	configPath := filepath.Join(tmpDir, "kind-config.yaml")
 	if err := os.WriteFile(configPath, kindConfig, 0o644); err != nil {

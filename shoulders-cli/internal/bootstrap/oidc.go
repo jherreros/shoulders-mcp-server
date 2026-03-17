@@ -8,6 +8,7 @@ import (
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	appsv1 "k8s.io/api/apps/v1"
+	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"sigs.k8s.io/kind/pkg/cluster/constants"
 )
@@ -67,7 +68,7 @@ func ConfigureAPIServerOIDC(name, kubeconfig string, authConfig []byte) error {
 			continue
 		}
 
-		previousStartTime, err := apiserverPodStartTime(kubeconfig)
+		previousStartTime, err := apiserverObservedStartTime(kubeconfig)
 		if err != nil {
 			return fmt.Errorf("get kube-apiserver start time: %w", err)
 		}
@@ -105,7 +106,7 @@ mv "$tmp" %s
 			if rollbackErr := node.Command("sh", "-c", rollback).Run(); rollbackErr != nil {
 				return fmt.Errorf("kube-apiserver did not recover after OIDC configuration (%w) and rollback failed on %s: %w", err, node.String(), rollbackErr)
 			}
-			rollbackStartTime, startErr := apiserverPodStartTime(kubeconfig)
+			rollbackStartTime, startErr := apiserverObservedStartTime(kubeconfig)
 			if startErr != nil {
 				rollbackStartTime = ""
 			}
@@ -135,8 +136,8 @@ func WaitForAPIServerRestart(kubeconfig, previousStartTime string, timeout time.
 		if previousStartTime != "" {
 			pod, err := clientset.CoreV1().Pods("kube-system").List(context.Background(), metav1.ListOptions{LabelSelector: "component=kube-apiserver"})
 			if err == nil && len(pod.Items) > 0 {
-				currentStartTime := pod.Items[0].Status.StartTime
-				if currentStartTime != nil && currentStartTime.UTC().Format(time.RFC3339) != previousStartTime {
+				currentStartTime := apiserverPodObservedStartTime(&pod.Items[0])
+				if currentStartTime != "" && currentStartTime != previousStartTime {
 					startTimeChanged = true
 				}
 			}
@@ -155,7 +156,7 @@ func WaitForAPIServerRestart(kubeconfig, previousStartTime string, timeout time.
 	return fmt.Errorf("kube-apiserver did not become ready within %s", timeout)
 }
 
-func apiserverPodStartTime(kubeconfig string) (string, error) {
+func apiserverObservedStartTime(kubeconfig string) (string, error) {
 	clientset, err := kube.NewClientset(kubeconfig)
 	if err != nil {
 		return "", err
@@ -165,12 +166,29 @@ func apiserverPodStartTime(kubeconfig string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(pods.Items) == 0 || pods.Items[0].Status.StartTime == nil {
+	if len(pods.Items) == 0 {
 		return "", nil
 	}
 
-	return pods.Items[0].Status.StartTime.UTC().Format(time.RFC3339), nil
+	return apiserverPodObservedStartTime(&pods.Items[0]), nil
+}
+
+func apiserverPodObservedStartTime(pod *corev1.Pod) string {
+	for _, status := range pod.Status.ContainerStatuses {
+		if status.Name != "kube-apiserver" {
+			continue
+		}
+		if status.State.Running != nil {
+			return status.State.Running.StartedAt.UTC().Format(time.RFC3339)
+		}
 	}
+
+	if pod.Status.StartTime == nil {
+		return ""
+	}
+
+	return pod.Status.StartTime.UTC().Format(time.RFC3339)
+}
 
 func dexServiceIP(kubeconfig string) (string, error) {
 	clientset, err := kube.NewClientset(kubeconfig)

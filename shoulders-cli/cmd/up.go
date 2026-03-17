@@ -42,11 +42,27 @@ var upCmd = &cobra.Command{
 		}
 		spinner.Success("Flux reconciliation complete")
 
+		if err := bootstrap.WaitForDeploymentReady(kubeconfig, "dex", "dex", 10*time.Minute); err != nil {
+			return fmt.Errorf("failed waiting for dex deployment: %w", err)
+		}
+		if err := bootstrap.WaitForDeploymentReady(kubeconfig, "headlamp", "headlamp", 10*time.Minute); err != nil {
+			return fmt.Errorf("failed waiting for headlamp deployment: %w", err)
+		}
+		if err := bootstrap.WaitForDeploymentReady(kubeconfig, "observability", "kube-prometheus-stack-grafana", 10*time.Minute); err != nil {
+			return fmt.Errorf("failed waiting for grafana deployment: %w", err)
+		}
+
 		if err := bootstrap.RestartCiliumWorkloads(kubeconfig); err != nil {
 			return fmt.Errorf("failed to restart cilium after flux reconciliation: %w", err)
 		}
-		if err := bootstrap.WaitForDeploymentReady(kubeconfig, "dex", "dex", 10*time.Minute); err != nil {
-			return fmt.Errorf("failed waiting for dex deployment: %w", err)
+		if err := bootstrap.WaitForHTTPRouteResolved(kubeconfig, "dex", "dex", 5*time.Minute); err != nil {
+			return fmt.Errorf("failed waiting for dex route: %w", err)
+		}
+		if err := bootstrap.WaitForHTTPRouteResolved(kubeconfig, "headlamp", "headlamp", 5*time.Minute); err != nil {
+			return fmt.Errorf("failed waiting for headlamp route: %w", err)
+		}
+		if err := bootstrap.WaitForHTTPRouteResolved(kubeconfig, "observability", "grafana", 5*time.Minute); err != nil {
+			return fmt.Errorf("failed waiting for grafana route: %w", err)
 		}
 		if err := bootstrap.ConfigureAPIServerOIDC(upClusterName, kubeconfig, manifests.AuthenticationConfig); err != nil {
 			return fmt.Errorf("failed to configure kube-apiserver OIDC: %w", err)
