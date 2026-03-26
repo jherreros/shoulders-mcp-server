@@ -2,6 +2,7 @@ package kube
 
 import (
 	"fmt"
+	"strings"
 
 	"k8s.io/client-go/rest"
 	"k8s.io/client-go/tools/clientcmd"
@@ -34,4 +35,22 @@ func SwitchContext(kubeconfigPath, contextName string) error {
 	config.CurrentContext = contextName
 
 	return clientcmd.ModifyConfig(rules, *config, true)
+}
+
+// IsShouldersContext returns true if the current kubeconfig context belongs
+// to a kind cluster created by Shoulders (context name starts with "kind-shoulders").
+func IsShouldersContext(kubeconfigPath string) (bool, string, error) {
+	rules := clientcmd.NewDefaultClientConfigLoadingRules()
+	if kubeconfigPath != "" {
+		rules.ExplicitPath = kubeconfigPath
+	}
+	config, err := rules.Load()
+	if err != nil {
+		return false, "", err
+	}
+	ctx := config.CurrentContext
+	if strings.HasPrefix(ctx, "kind-shoulders") {
+		return true, ctx, nil
+	}
+	return false, ctx, nil
 }

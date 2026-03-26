@@ -20,10 +20,12 @@ go build -o shoulders
 
 ### Cluster Management
 ```bash
-./shoulders up --name dev            # Create a cluster (default: shoulders)
-./shoulders cluster list             # List running clusters
-./shoulders cluster use dev          # Switch context to 'dev' cluster
-./shoulders down --name dev          # Delete the cluster
+./shoulders up                        # Create and bootstrap the platform (default name: shoulders)
+./shoulders up --verbose              # Same, with detailed per-phase progress
+./shoulders cluster list              # List running clusters
+./shoulders cluster use dev           # Switch context to 'dev' cluster
+./shoulders down --name dev           # Delete the cluster
+./shoulders update                    # Check for and install a new CLI version
 ```
 
 ### Workspace Management
@@ -55,9 +57,10 @@ go build -o shoulders
 
 ### Platform
 ```bash
-./shoulders status
+./shoulders status                    # Show cluster & platform health
+./shoulders status --wait             # Poll until all components are healthy
 ./shoulders dashboard                 # Opens grafana.localhost (falls back to localhost:3000)
-./shoulders headlamp                  # Opens headlamp.localhost (falls back to localhost:4466)
+./shoulders portal                    # Opens Headlamp portal (falls back to localhost:4466)
 ```
 
 `*.localhost` access requires host port `80` to be available when the cluster is created. If you changed these settings, recreate the cluster:
@@ -77,5 +80,10 @@ Use `-o table|json|yaml` for supported list and status commands.
 - `shoulders app init` supports `--dry-run` to emit YAML instead of applying it.
 - `shoulders logs` attempts a Loki query first and falls back to direct pod log streaming (no `kubectl`).
 - `shoulders up` provisions the cluster via the Kind Go API and installs Cilium + Flux without running shell scripts. It pulls the Cilium chart and Flux install manifest from their upstream URLs.
+- `shoulders up --verbose` shows detailed descriptions for each bootstrap phase.
+- `shoulders up` displays a live timer, per-phase durations, and a final summary (e.g. "Shoulders platform provisioned in 04:32").
 - `shoulders infra add-stream` supports `--partitions`, `--replicas`, and repeatable `--config key=value` entries.
 - `shoulders up` and `down` support `--name` to create/delete specifically named clusters.
+- `shoulders status --wait` polls every 3 seconds and refreshes the TUI display until all components are healthy.
+- `shoulders update` checks the latest GitHub release and self-updates the binary.
+- Commands that interact with the cluster (status, down, workspace, app, etc.) verify that the current kubeconfig context is a Shoulders-managed kind cluster. Use `shoulders cluster use <name>` to switch contexts.

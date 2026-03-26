@@ -15,9 +15,9 @@ const (
 	headlampService   = "headlamp"
 )
 
-var headlampCmd = &cobra.Command{
-	Use:   "headlamp",
-	Short: "Open Headlamp UI",
+var portalCmd = &cobra.Command{
+	Use:   "portal",
+	Short: "Open the Shoulders portal (Headlamp UI)",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		const headlampOIDCURL = "http://headlamp.localhost"
 

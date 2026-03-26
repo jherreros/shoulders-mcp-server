@@ -4,11 +4,14 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/crossplane"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/flux"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/output"
+	"github.com/jherreros/shoulders/shoulders-cli/internal/tui"
+	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
@@ -27,6 +30,8 @@ type statusSummary struct {
 	GatewayAddr  string   `json:"gatewayAddress" yaml:"gatewayAddress"`
 }
 
+var statusWait bool
+
 var statusCmd = &cobra.Command{
 	Use:   "status",
 	Short: "Show cluster and platform status",
@@ -36,111 +41,146 @@ var statusCmd = &cobra.Command{
 			return err
 		}
 
-		ctx := context.Background()
-		clientset, err := kube.NewClientset(kubeconfig)
+		if statusWait {
+			return statusWaitLoop(cmd.Context(), format)
+		}
+
+		summary, err := gatherStatus(cmd.Context())
 		if err != nil {
 			return err
 		}
-		dynamicClient, err := kube.NewDynamicClient(kubeconfig)
-		if err != nil {
-			return err
-		}
+		return renderStatus(summary, format)
+	},
+}
 
-		// 1. Cluster Info
-		versionInfo, err := clientset.Discovery().ServerVersion()
-		k8sVersion := "unknown"
-		if err == nil {
-			k8sVersion = versionInfo.GitVersion
-		}
+func gatherStatus(ctx context.Context) (statusSummary, error) {
+	clientset, err := kube.NewClientset(kubeconfig)
+	if err != nil {
+		return statusSummary{}, err
+	}
+	dynamicClient, err := kube.NewDynamicClient(kubeconfig)
+	if err != nil {
+		return statusSummary{}, err
+	}
 
-		// 2. Nodes
-		nodes, err := clientset.CoreV1().Nodes().List(ctx, v1.ListOptions{})
-		if err != nil {
-			return err
-		}
-		nodesReady := true
-		for _, node := range nodes.Items {
-			if !isNodeReady(node) {
-				nodesReady = false
-			}
-		}
+	// 1. Cluster Info
+	versionInfo, err := clientset.Discovery().ServerVersion()
+	k8sVersion := "unknown"
+	if err == nil {
+		k8sVersion = versionInfo.GitVersion
+	}
 
-		// 3. Flux
-		fluxReady, fluxPending, err := flux.AllKustomizationsReady(ctx, dynamicClient, "flux-system")
-		if err != nil {
-			// Don't fail completely if CRDs are missing, just report not ready
-			fluxReady = false
-			fluxPending = []string{err.Error()}
+	// 2. Nodes
+	nodes, err := clientset.CoreV1().Nodes().List(ctx, v1.ListOptions{})
+	if err != nil {
+		return statusSummary{}, err
+	}
+	nodesReady := true
+	for _, node := range nodes.Items {
+		if !isNodeReady(node) {
+			nodesReady = false
 		}
+	}
 
-		// 4. Crossplane
-		xpReady, xpUnhealthy, err := crossplane.AllProvidersHealthy(ctx, dynamicClient)
-		if err != nil {
-			xpReady = false
-			xpUnhealthy = []string{err.Error()}
-		}
+	// 3. Flux
+	fluxReady, fluxPending, err := flux.AllKustomizationsReady(ctx, dynamicClient, "flux-system")
+	if err != nil {
+		fluxReady = false
+		fluxPending = []string{err.Error()}
+	}
 
-		// 5. Gateway
-		gwReady := false
-		gwAddr := "Pending"
-		gwProgrammed := false
-		gvrGW := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
-		gwList, err := dynamicClient.Resource(gvrGW).Namespace("kube-system").List(ctx, v1.ListOptions{})
-		if err == nil && len(gwList.Items) > 0 {
-			gw := gwList.Items[0]
+	// 4. Crossplane
+	xpReady, xpUnhealthy, err := crossplane.AllProvidersHealthy(ctx, dynamicClient)
+	if err != nil {
+		xpReady = false
+		xpUnhealthy = []string{err.Error()}
+	}
 
-			// Check the Programmed condition
-			if status, ok := gw.Object["status"].(map[string]interface{}); ok {
-				if conditions, ok := status["conditions"].([]interface{}); ok {
-					for _, c := range conditions {
-						cond, _ := c.(map[string]interface{})
-						if fmt.Sprintf("%v", cond["type"]) == "Programmed" && fmt.Sprintf("%v", cond["status"]) == "True" {
-							gwProgrammed = true
-							gwReady = true
-						}
+	// 5. Gateway
+	gwReady := false
+	gwAddr := "Pending"
+	gwProgrammed := false
+	gvrGW := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
+	gwList, err := dynamicClient.Resource(gvrGW).Namespace("kube-system").List(ctx, v1.ListOptions{})
+	if err == nil && len(gwList.Items) > 0 {
+		gw := gwList.Items[0]
+		if status, ok := gw.Object["status"].(map[string]interface{}); ok {
+			if conditions, ok := status["conditions"].([]interface{}); ok {
+				for _, c := range conditions {
+					cond, _ := c.(map[string]interface{})
+					if fmt.Sprintf("%v", cond["type"]) == "Programmed" && fmt.Sprintf("%v", cond["status"]) == "True" {
+						gwProgrammed = true
+						gwReady = true
 					}
 				}
-				if addrs, ok := status["addresses"].([]interface{}); ok && len(addrs) > 0 {
-					if addrMap, ok := addrs[0].(map[string]interface{}); ok {
-						gwAddr = fmt.Sprintf("%v", addrMap["value"])
-					}
+			}
+			if addrs, ok := status["addresses"].([]interface{}); ok && len(addrs) > 0 {
+				if addrMap, ok := addrs[0].(map[string]interface{}); ok {
+					gwAddr = fmt.Sprintf("%v", addrMap["value"])
 				}
 			}
 		}
-
-		if !gwProgrammed {
-			if svc, err := clientset.CoreV1().Services("kube-system").Get(ctx, "cilium-gateway-cilium-gateway", v1.GetOptions{}); err == nil {
-				if svc.Spec.Type == corev1.ServiceTypeClusterIP {
-					gwReady = true
-					gwAddr = "localhost"
-				}
+	}
+	if !gwProgrammed {
+		if svc, err := clientset.CoreV1().Services("kube-system").Get(ctx, "cilium-gateway-cilium-gateway", v1.GetOptions{}); err == nil {
+			if svc.Spec.Type == corev1.ServiceTypeClusterIP {
+				gwReady = true
+				gwAddr = "localhost"
 			}
 		}
+	}
 
-		summary := statusSummary{
-			K8sVersion:   k8sVersion,
-			NodesReady:   nodesReady,
-			NodeCount:    len(nodes.Items),
-			FluxReady:    fluxReady,
-			FluxBroken:   fluxPending,
-			XPlaneReady:  xpReady,
-			XPlaneBroken: xpUnhealthy,
-			GatewayReady: gwReady,
-			GatewayAddr:  gwAddr,
+	return statusSummary{
+		K8sVersion:   k8sVersion,
+		NodesReady:   nodesReady,
+		NodeCount:    len(nodes.Items),
+		FluxReady:    fluxReady,
+		FluxBroken:   fluxPending,
+		XPlaneReady:  xpReady,
+		XPlaneBroken: xpUnhealthy,
+		GatewayReady: gwReady,
+		GatewayAddr:  gwAddr,
+	}, nil
+}
+
+func renderStatus(s statusSummary, format output.Format) error {
+	if format == output.Table {
+		printStatusTable(s)
+		return nil
+	}
+	payload, err := output.Render(s, format)
+	if err != nil {
+		return err
+	}
+	fmt.Println(string(payload))
+	return nil
+}
+
+func statusWaitLoop(ctx context.Context, format output.Format) error {
+	area, _ := pterm.DefaultArea.WithRemoveWhenDone(false).Start()
+	defer area.Stop()
+
+	ticker := time.NewTicker(3 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		summary, err := gatherStatus(ctx)
+		if err != nil {
+			return err
 		}
 
-		if format == output.Table {
-			printStatusTable(summary)
+		area.Update(renderStatusTUI(summary))
+
+		if summary.NodesReady && summary.FluxReady && summary.XPlaneReady && summary.GatewayReady {
 			return nil
 		}
 
-		payload, err := output.Render(summary, format)
-		if err != nil {
-			return err
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
 		}
-		fmt.Println(string(payload))
-		return nil
-	},
+	}
 }
 
 func isNodeReady(node corev1.Node) bool {
@@ -152,16 +192,26 @@ func isNodeReady(node corev1.Node) bool {
 	return false
 }
 
-func printStatusTable(s statusSummary) {
-	fmt.Println("CLUSTER")
-	fmt.Printf("  Version: %s\n", s.K8sVersion)
-	fmt.Printf("  Nodes:   %d (All Ready: %t)\n", s.NodeCount, s.NodesReady)
-	fmt.Println()
+func renderStatusTUI(s statusSummary) string {
+	var b strings.Builder
 
-	fmt.Println("PLATFORM")
-	fmt.Printf("  Flux CD:    %s\n", formatStatus(s.FluxReady, s.FluxBroken))
-	fmt.Printf("  Crossplane: %s\n", formatStatus(s.XPlaneReady, s.XPlaneBroken))
-	fmt.Printf("  Gateway:    %s (%s)\n", boolToText(s.GatewayReady), s.GatewayAddr)
+	b.WriteString(tui.Header("Shoulders Platform Status") + "\n\n")
+	b.WriteString(tui.StatusLine("Cluster", s.NodesReady, fmt.Sprintf("%s • %d node(s)", s.K8sVersion, s.NodeCount)) + "\n")
+	b.WriteString(tui.StatusLine("Flux CD", s.FluxReady, formatDetail(s.FluxBroken)) + "\n")
+	b.WriteString(tui.StatusLine("Crossplane", s.XPlaneReady, formatDetail(s.XPlaneBroken)) + "\n")
+	b.WriteString(tui.StatusLine("Gateway", s.GatewayReady, s.GatewayAddr) + "\n")
+
+	if s.NodesReady && s.FluxReady && s.XPlaneReady && s.GatewayReady {
+		b.WriteString("\n  " + pterm.NewStyle(pterm.FgGreen, pterm.Bold).Sprint("All systems healthy") + "\n")
+	} else {
+		b.WriteString("\n  " + pterm.NewStyle(pterm.FgYellow).Sprint("Waiting for components to become healthy...") + "\n")
+	}
+
+	return b.String()
+}
+
+func printStatusTable(s statusSummary) {
+	fmt.Println(renderStatusTUI(s))
 }
 
 func formatStatus(ready bool, issues []string) string {
@@ -174,9 +224,20 @@ func formatStatus(ready bool, issues []string) string {
 	return "Unhealthy"
 }
 
+func formatDetail(issues []string) string {
+	if len(issues) > 0 {
+		return strings.Join(issues, ", ")
+	}
+	return ""
+}
+
 func boolToText(b bool) string {
 	if b {
 		return "Ready"
 	}
 	return "Not Ready"
+}
+
+func init() {
+	statusCmd.Flags().BoolVar(&statusWait, "wait", false, "Poll until all components are healthy")
 }

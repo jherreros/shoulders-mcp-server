@@ -5,21 +5,39 @@ import (
 	"os"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/config"
+	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/output"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 )
 
+// Version is set at build time via -ldflags.
+var Version = "dev"
+
+// Commands that do not require a shoulders cluster context.
+var skipClusterCheck = map[string]bool{
+	"up":      true,
+	"update":  true,
+	"cluster": true,
+	"help":    true,
+	"version": true,
+}
+
 var (
 	rootCmd = &cobra.Command{
-		Use:   "shoulders",
-		Short: "Developer CLI for the Shoulders IDP",
+		Use:     "shoulders",
+		Short:   "Developer CLI for the Shoulders IDP",
+		Version: Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := config.Load()
 			if err != nil {
 				return err
 			}
 			currentConfig = cfg
+
+			if err := ensureShouldersCluster(cmd); err != nil {
+				return err
+			}
 			return nil
 		},
 	}
@@ -50,8 +68,9 @@ func init() {
 	rootCmd.AddCommand(infraCmd)
 	rootCmd.AddCommand(clusterCmd)
 	rootCmd.AddCommand(dashboardCmd)
-	rootCmd.AddCommand(headlampCmd)
+	rootCmd.AddCommand(portalCmd)
 	rootCmd.AddCommand(logsCmd)
+	rootCmd.AddCommand(updateCmd)
 }
 
 func initConfig() {
@@ -61,4 +80,30 @@ func initConfig() {
 
 func outputOption() (output.Format, error) {
 	return output.ParseFormat(outputFormat)
+}
+
+// ensureShouldersCluster verifies the current kubeconfig context belongs to
+// a Shoulders-managed kind cluster. Commands in skipClusterCheck are exempt.
+func ensureShouldersCluster(cmd *cobra.Command) error {
+	// Walk up to find the top-level subcommand name.
+	name := rootCmdName(cmd)
+	if skipClusterCheck[name] {
+		return nil
+	}
+
+	ok, ctx, err := kube.IsShouldersContext(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("cannot determine cluster context: %w", err)
+	}
+	if !ok {
+		return fmt.Errorf("current context %q is not a Shoulders cluster; switch with 'shoulders cluster use <name>' or run 'shoulders up'", ctx)
+	}
+	return nil
+}
+
+func rootCmdName(cmd *cobra.Command) string {
+	for cmd.HasParent() && cmd.Parent().HasParent() {
+		cmd = cmd.Parent()
+	}
+	return cmd.Name()
 }
