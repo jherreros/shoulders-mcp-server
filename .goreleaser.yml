@@ -11,6 +11,8 @@ builds:
     binary: shoulders
     env:
       - CGO_ENABLED=0
+    ldflags:
+      - -s -w -X github.com/jherreros/shoulders/shoulders-cli/cmd.Version={{ .Version }}
     goos:
       - linux
       - darwin

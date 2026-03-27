@@ -158,7 +158,7 @@ func renderStatus(s statusSummary, format output.Format) error {
 
 func statusWaitLoop(ctx context.Context, format output.Format) error {
 	area, _ := pterm.DefaultArea.WithRemoveWhenDone(false).Start()
-	defer area.Stop()
+	defer func() { _ = area.Stop() }()
 
 	ticker := time.NewTicker(3 * time.Second)
 	defer ticker.Stop()

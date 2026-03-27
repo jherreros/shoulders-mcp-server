@@ -18,7 +18,6 @@ var (
 	boldStyle   = pterm.NewStyle(pterm.Bold)
 	redStyle    = pterm.NewStyle(pterm.FgRed)
 	greenStyle  = pterm.NewStyle(pterm.FgGreen)
-	yellowStyle = pterm.NewStyle(pterm.FgYellow)
 )
 
 // phaseState tracks timing for a single phase.
@@ -109,7 +108,7 @@ func (pt *PhaseTracker) Fail(detail string) {
 func (pt *PhaseTracker) Stop() {
 	pt.ticker.Stop()
 	close(pt.stopTick)
-	pt.area.Stop()
+	_ = pt.area.Stop()
 }
 
 // Elapsed returns the total time since the tracker was created.

@@ -1,6 +1,9 @@
 package cmd
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -56,7 +59,8 @@ var updateCmd = &cobra.Command{
 
 		spinner.UpdateText(fmt.Sprintf("New version available: %s → %s", current, latest))
 
-		assetName := fmt.Sprintf("shoulders-%s-%s", runtime.GOOS, runtime.GOARCH)
+		// GoReleaser produces archives like: shoulders_0.2.0_darwin_arm64.tar.gz
+		assetName := fmt.Sprintf("shoulders_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
 		var downloadURL string
 		for _, asset := range release.Assets {
 			if asset.Name == assetName {
@@ -66,15 +70,21 @@ var updateCmd = &cobra.Command{
 		}
 		if downloadURL == "" {
 			spinner.Fail("No binary found for your platform")
-			return fmt.Errorf("no release asset found for %s/%s", runtime.GOOS, runtime.GOARCH)
+			return fmt.Errorf("no release asset %q found for %s/%s", assetName, runtime.GOOS, runtime.GOARCH)
 		}
 
 		spinner.UpdateText(fmt.Sprintf("Downloading %s...", release.TagName))
 
-		binary, err := downloadAsset(cmd.Context(), downloadURL)
+		archive, err := downloadAsset(cmd.Context(), downloadURL)
 		if err != nil {
 			spinner.Fail("Download failed")
 			return fmt.Errorf("failed to download update: %w", err)
+		}
+
+		binary, err := extractBinaryFromTarGz(archive, "shoulders")
+		if err != nil {
+			spinner.Fail("Extraction failed")
+			return fmt.Errorf("failed to extract binary from archive: %w", err)
 		}
 
 		execPath, err := os.Executable()
@@ -106,7 +116,7 @@ func fetchLatestRelease(ctx context.Context) (*githubRelease, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("GitHub API returned %s", resp.Status)
@@ -129,7 +139,7 @@ func downloadAsset(ctx context.Context, url string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("download returned %s", resp.Status)
@@ -147,4 +157,28 @@ func replaceExecutable(path string, newBinary []byte) error {
 		return err
 	}
 	return nil
+}
+
+// extractBinaryFromTarGz finds a file named binaryName inside a gzipped tar archive.
+func extractBinaryFromTarGz(archive []byte, binaryName string) ([]byte, error) {
+	gr, err := gzip.NewReader(bytes.NewReader(archive))
+	if err != nil {
+		return nil, fmt.Errorf("gzip open: %w", err)
+	}
+	defer func() { _ = gr.Close() }()
+
+	tr := tar.NewReader(gr)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, fmt.Errorf("tar read: %w", err)
+		}
+		if hdr.Name == binaryName || strings.HasSuffix(hdr.Name, "/"+binaryName) {
+			return io.ReadAll(tr)
+		}
+	}
+	return nil, fmt.Errorf("binary %q not found in archive", binaryName)
 }
