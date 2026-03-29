@@ -21,7 +21,7 @@ All resources are defined as Crossplane Composite Resources and managed through 
 Shoulders follows a multi-layered approach:
 
 ### 1. Cluster Layer (`1-cluster/`)
-Creates a three-node Kubernetes cluster using **kind** (Kubernetes in Docker) for local development with the default CNI disabled so Cilium can take over.
+Creates a Kubernetes cluster using **vind** (vCluster in Docker) for local development. Vind provides automatic LoadBalancer support, sleep/wake capability, and pull-through image caching.
 
 ### 2. Addons Layer (`2-addons/`)
 Installs platform components using **FluxCD** for GitOps-based deployment. Flux Kustomizations enforce install order: helm repositories → namespaces → helm releases → crossplane → gateway → dex → headlamp.
@@ -47,6 +47,7 @@ A Headlamp plugin that renders a self-service UI for Shoulders resources inside 
 
 | Technology | Role |
 |---|---|
+| [vind](https://github.com/loft-sh/vind) | vCluster in Docker — local Kubernetes clusters with sleep/wake and LoadBalancer support |
 | [Crossplane](https://crossplane.io) | Composable infrastructure for custom abstractions (XRDs + Compositions) |
 | [FluxCD](https://fluxcd.io) | GitOps continuous delivery for Kubernetes |
 | [Cilium](https://cilium.io) | CNI with kube-proxy replacement, network policies, and Gateway API implementation |
@@ -71,10 +72,10 @@ curl -fsSL https://raw.githubusercontent.com/jherreros/shoulders/main/scripts/in
 shoulders up
 ```
 
-Note: Shoulders maps kind control-plane ports `80` and `443` to your host to enable local routing for Dex, Grafana, and Headlamp. Ensure those host ports are free before running `shoulders up`.
+Note: Shoulders maps vind container ports `80` and `443` to your host to enable local routing for Dex, Grafana, and Headlamp. Ensure those host ports are free before running `shoulders up`.
 
 This will:
-1. Create a local kind cluster named `shoulders`.
+1. Create a local vind cluster named `shoulders`.
 2. Install Cilium CNI with kube-proxy replacement and Gateway API support.
 3. Bootstrap FluxCD.
 4. Deploy all platform components via GitOps and wait for reconciliation.
@@ -91,7 +92,7 @@ The `shoulders` CLI supports the following commands:
 
 ```
 shoulders up                            # Create cluster and install platform
-shoulders down                          # Delete the kind cluster
+shoulders down                          # Delete the vind cluster
 shoulders status                        # Cluster and platform health
 
 shoulders workspace create <name>       # Create a Workspace
@@ -110,7 +111,7 @@ shoulders infra add-stream <name>       # Create an EventStream (--topics, --par
 shoulders infra list                    # List StateStores and EventStreams
 shoulders infra delete <name>           # Delete an infrastructure resource
 
-shoulders cluster list                  # List local kind clusters
+shoulders cluster list                  # List local vind clusters
 shoulders cluster use <name>            # Switch context to a cluster
 
 shoulders logs <app-name>               # Fetch logs (Loki if available, else pod logs)
@@ -324,8 +325,8 @@ See [shoulders-mcp-server/README.md](shoulders-mcp-server/README.md) for the ful
 ```
 shoulders/
 ├── 1-cluster/                     # Cluster creation
-│   ├── create-cluster.sh          # Kind cluster setup script
-│   └── kind-config.yaml           # Kind configuration (3 nodes, no default CNI)
+│   ├── create-cluster.sh          # vind cluster setup script
+│   └── vind-config.yaml           # vCluster Docker driver configuration
 ├── 2-addons/                      # Platform components (GitOps-managed)
 │   ├── flux/                      # FluxCD bootstrap (GitRepository + Kustomizations)
 │   ├── install-addons.sh          # Addon installation script (Cilium + Flux)

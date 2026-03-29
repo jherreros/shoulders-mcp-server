@@ -38,7 +38,7 @@ func SwitchContext(kubeconfigPath, contextName string) error {
 }
 
 // IsShouldersContext returns true if the current kubeconfig context belongs
-// to a kind cluster created by Shoulders (context name starts with "kind-shoulders").
+// to a vind cluster created by Shoulders (context name starts with "vcluster-docker_shoulders").
 func IsShouldersContext(kubeconfigPath string) (bool, string, error) {
 	rules := clientcmd.NewDefaultClientConfigLoadingRules()
 	if kubeconfigPath != "" {
@@ -49,7 +49,7 @@ func IsShouldersContext(kubeconfigPath string) (bool, string, error) {
 		return false, "", err
 	}
 	ctx := config.CurrentContext
-	if strings.HasPrefix(ctx, "kind-shoulders") {
+	if strings.HasPrefix(ctx, "vcluster-docker_shoulders") {
 		return true, ctx, nil
 	}
 	return false, ctx, nil

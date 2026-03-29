@@ -26,6 +26,7 @@ coverage.txt
 /shoulders-cli/shoulders*
 /shoulders-cli/dist/
 /shoulders-cli/bin/
+/shoulders-cli/docker/
 
 # Node
 dist/

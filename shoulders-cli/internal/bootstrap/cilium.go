@@ -2,6 +2,7 @@ package bootstrap
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"time"
@@ -11,6 +12,8 @@ import (
 	"helm.sh/helm/v3/pkg/chart/loader"
 	helmcli "helm.sh/helm/v3/pkg/cli"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/apimachinery/pkg/util/wait"
 	"k8s.io/client-go/kubernetes"
 )
@@ -18,7 +21,7 @@ import (
 const (
 	ciliumRepoURL   = "https://helm.cilium.io/"
 	ciliumChartName = "cilium"
-	ciliumVersion   = "1.19.1"
+	ciliumVersion   = "1.19.2"
 )
 
 func EnsureCilium(kubeconfigPath string) error {
@@ -43,16 +46,23 @@ func EnsureCilium(kubeconfigPath string) error {
 		return err
 	}
 
+	// Determine the API server address as seen from inside the cluster.
+	// kubeProxyReplacement needs this to take over service routing.
+	apiHost, apiPort, err := getAPIServerEndpoint(kubeconfigPath)
+	if err != nil {
+		return fmt.Errorf("determine api server endpoint: %w", err)
+	}
+
 	values := map[string]interface{}{
-		"k8sServiceHost": "shoulders-control-plane",
-		"k8sServicePort": 6443,
-		"kubeProxyReplacement": true,
 		"image": map[string]interface{}{
 			"pullPolicy": "IfNotPresent",
 		},
 		"ipam": map[string]interface{}{
 			"mode": "kubernetes",
 		},
+		"kubeProxyReplacement": true,
+		"k8sServiceHost":       apiHost,
+		"k8sServicePort":       apiPort,
 		"gatewayAPI": map[string]interface{}{
 			"enabled": true,
 			"hostNetwork": map[string]interface{}{
@@ -66,6 +76,9 @@ func EnsureCilium(kubeconfigPath string) error {
 					"keepCapNetBindService": true,
 				},
 			},
+		},
+		"extraConfig": map[string]interface{}{
+			"api-rate-limit": "endpoint-create=rate-limit:100/s,rate-burst:50",
 		},
 	}
 
@@ -86,6 +99,16 @@ func EnsureCilium(kubeconfigPath string) error {
 	install.Version = ciliumVersion
 	if _, err = install.Run(chart, values); err != nil {
 		return err
+	}
+
+	// Wait for the Cilium DaemonSet to become ready so the CNI config is
+	// written before any other pods are restarted.
+	clientset, err := kube.NewClientset(kubeconfigPath)
+	if err != nil {
+		return err
+	}
+	if err := waitForCiliumDaemonSet(context.Background(), clientset); err != nil {
+		return fmt.Errorf("waiting for cilium daemonset: %w", err)
 	}
 	return nil
 }
@@ -175,4 +198,176 @@ func releaseExists(cfg *action.Configuration, name string) bool {
 	get := action.NewGet(cfg)
 	_, err := get.Run(name)
 	return err == nil
+}
+
+// getAPIServerEndpoint returns the API server host and port as seen from
+// inside the cluster by reading the kubernetes endpoints.
+func getAPIServerEndpoint(kubeconfigPath string) (string, int32, error) {
+	clientset, err := kube.NewClientset(kubeconfigPath)
+	if err != nil {
+		return "", 0, err
+	}
+
+	ep, err := clientset.CoreV1().Endpoints("default").Get(context.Background(), "kubernetes", metav1.GetOptions{})
+	if err != nil {
+		return "", 0, fmt.Errorf("get kubernetes endpoints: %w", err)
+	}
+
+	for _, subset := range ep.Subsets {
+		if len(subset.Addresses) > 0 && len(subset.Ports) > 0 {
+			return subset.Addresses[0].IP, subset.Ports[0].Port, nil
+		}
+	}
+	return "", 0, fmt.Errorf("no kubernetes endpoint addresses found")
+}
+
+// PatchCiliumHelmRelease removes kind-specific k8sServiceHost/Port and
+// kubeProxyReplacement from the Flux-managed Cilium HelmRelease. This is
+// needed because the Git repo may still contain values targeting a kind
+// cluster, while vind uses a different API server topology.
+func PatchCiliumHelmRelease(kubeconfigPath string) error {
+	client, err := kube.NewDynamicClient(kubeconfigPath)
+	if err != nil {
+		return fmt.Errorf("create dynamic client: %w", err)
+	}
+
+	gvr := kube.HelmReleaseGVR()
+	ctx := context.Background()
+
+	hr, err := client.Resource(gvr).Namespace("kube-system").Get(ctx, "cilium", metav1.GetOptions{})
+	if err != nil {
+		// HelmRelease may not exist yet (e.g. if Flux hasn't reconciled)
+		return nil
+	}
+
+	vals, found, err := unstructuredNestedMap(hr.Object, "spec", "values")
+	if err != nil || !found {
+		return nil
+	}
+
+	changed := false
+	for _, key := range []string{"k8sServiceHost", "k8sServicePort", "kubeProxyReplacement"} {
+		if _, ok := vals[key]; ok {
+			delete(vals, key)
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+
+	patch := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"values": vals,
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal patch: %w", err)
+	}
+
+	_, err = client.Resource(gvr).Namespace("kube-system").Patch(
+		ctx, "cilium", types.MergePatchType, patchBytes, metav1.PatchOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf("patch cilium helmrelease: %w", err)
+	}
+
+	return nil
+}
+
+// SuspendCiliumHelmRelease patches the Flux helm-releases Kustomization to
+// add an inline patch that suspends the Cilium HelmRelease. This prevents
+// the Flux helm-controller from overriding the CLI-managed Cilium
+// installation with potentially incompatible values from the Git repo.
+func SuspendCiliumHelmRelease(kubeconfigPath string) error {
+	client, err := kube.NewDynamicClient(kubeconfigPath)
+	if err != nil {
+		return fmt.Errorf("create dynamic client: %w", err)
+	}
+
+	gvr := schema.GroupVersionResource{
+		Group:    "kustomize.toolkit.fluxcd.io",
+		Version:  "v1",
+		Resource: "kustomizations",
+	}
+	ctx := context.Background()
+
+	patch := map[string]interface{}{
+		"spec": map[string]interface{}{
+			"patches": []interface{}{
+				map[string]interface{}{
+					"target": map[string]interface{}{
+						"kind": "HelmRelease",
+						"name": "cilium",
+					},
+					"patch": `apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: cilium
+spec:
+  suspend: true`,
+				},
+			},
+		},
+	}
+	patchBytes, err := json.Marshal(patch)
+	if err != nil {
+		return fmt.Errorf("marshal patch: %w", err)
+	}
+
+	_, err = client.Resource(gvr).Namespace("flux-system").Patch(
+		ctx, "helm-releases", types.MergePatchType, patchBytes, metav1.PatchOptions{},
+	)
+	if err != nil {
+		return fmt.Errorf("patch helm-releases kustomization: %w", err)
+	}
+
+	return nil
+}
+
+// RestartStuckPods deletes all pods stuck in Pending phase across the
+// cluster (excluding flux-system). This is needed after Flux reconciliation
+// because the initial pod flood can overwhelm Cilium's endpoint API (429
+// rate limiting), leaving pods in exponential backoff. Deleting them lets
+// the owning controllers recreate them immediately.
+func RestartStuckPods(kubeconfigPath string) error {
+	clientset, err := kube.NewClientset(kubeconfigPath)
+	if err != nil {
+		return err
+	}
+
+	ctx := context.Background()
+	pods, err := clientset.CoreV1().Pods("").List(ctx, metav1.ListOptions{
+		FieldSelector: "status.phase=Pending",
+	})
+	if err != nil {
+		return fmt.Errorf("list pods: %w", err)
+	}
+
+	for _, pod := range pods.Items {
+		if pod.Namespace == "flux-system" {
+			continue
+		}
+		_ = clientset.CoreV1().Pods(pod.Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
+	}
+
+	return nil
+}
+
+// unstructuredNestedMap safely retrieves a nested map from an unstructured object.
+func unstructuredNestedMap(obj map[string]interface{}, fields ...string) (map[string]interface{}, bool, error) {
+	current := obj
+	for _, field := range fields {
+		val, ok := current[field]
+		if !ok {
+			return nil, false, nil
+		}
+		m, ok := val.(map[string]interface{})
+		if !ok {
+			return nil, false, fmt.Errorf("field %q is not a map", field)
+		}
+		current = m
+	}
+	return current, true, nil
 }

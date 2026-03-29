@@ -11,7 +11,7 @@ import (
 
 var clusterCmd = &cobra.Command{
 	Use:   "cluster",
-	Short: "Manage local kind clusters",
+	Short: "Manage local vind clusters",
 }
 
 var clusterListCmd = &cobra.Command{
@@ -51,7 +51,7 @@ var clusterUseCmd = &cobra.Command{
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
 		name := args[0]
-		contextName := "kind-" + name
+		contextName := bootstrap.ContextPrefix + name
 
 		if err := kube.SwitchContext(kubeconfig, contextName); err != nil {
 			return err

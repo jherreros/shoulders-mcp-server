@@ -9,7 +9,7 @@ import (
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 )
 
-const fluxInstallURL = "https://github.com/fluxcd/flux2/releases/download/v2.6.4/install.yaml"
+const fluxInstallURL = "https://github.com/fluxcd/flux2/releases/download/v2.8.3/install.yaml"
 
 func EnsureFlux(ctx context.Context, kubeconfigPath string, fluxManifests ...[]byte) error {
 	manifest, err := downloadFluxManifest(ctx)

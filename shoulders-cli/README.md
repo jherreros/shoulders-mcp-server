@@ -1,6 +1,6 @@
 # shoulders-cli
 
-Developer CLI for the Shoulders Internal Developer Platform. The bootstrap flow uses Go-native APIs (Kind + Helm SDK) rather than shelling out to scripts.
+Developer CLI for the Shoulders Internal Developer Platform. The bootstrap flow uses Go-native APIs (vCluster library + Helm SDK) rather than shelling out to scripts.
 
 ## Install
 
@@ -79,11 +79,11 @@ Use `-o table|json|yaml` for supported list and status commands.
 ## Notes
 - `shoulders app init` supports `--dry-run` to emit YAML instead of applying it.
 - `shoulders logs` attempts a Loki query first and falls back to direct pod log streaming (no `kubectl`).
-- `shoulders up` provisions the cluster via the Kind Go API and installs Cilium + Flux without running shell scripts. It pulls the Cilium chart and Flux install manifest from their upstream URLs.
+- `shoulders up` provisions the cluster via the vCluster Go library (vind/Docker driver) and installs Cilium + Flux without running shell scripts. It pulls the Cilium chart and Flux install manifest from their upstream URLs.
 - `shoulders up --verbose` shows detailed descriptions for each bootstrap phase.
 - `shoulders up` displays a live timer, per-phase durations, and a final summary (e.g. "Shoulders platform provisioned in 04:32").
 - `shoulders infra add-stream` supports `--partitions`, `--replicas`, and repeatable `--config key=value` entries.
 - `shoulders up` and `down` support `--name` to create/delete specifically named clusters.
 - `shoulders status --wait` polls every 3 seconds and refreshes the TUI display until all components are healthy.
 - `shoulders update` checks the latest GitHub release and self-updates the binary.
-- Commands that interact with the cluster (status, down, workspace, app, etc.) verify that the current kubeconfig context is a Shoulders-managed kind cluster. Use `shoulders cluster use <name>` to switch contexts.
+- Commands that interact with the cluster (status, down, workspace, app, etc.) verify that the current kubeconfig context is a Shoulders-managed vind cluster. Use `shoulders cluster use <name>` to switch contexts.

@@ -57,8 +57,8 @@ node dist/server.js
 
 **Platform & Cluster**
 - `get_platform_status`: Cluster/platform health (Flux, Crossplane, Gateway).
-- `list_clusters`: List local kind clusters.
-- `use_cluster`: Switch context to a kind cluster.
+- `list_clusters`: List local vind clusters.
+- `use_cluster`: Switch context to a vind cluster.
 
 **Observability**
 - `get_app_logs`: Fetch recent logs via Loki; falls back to `shoulders logs` if Loki is unavailable.

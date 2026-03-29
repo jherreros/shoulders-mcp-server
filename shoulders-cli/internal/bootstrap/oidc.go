@@ -4,19 +4,19 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"sigs.k8s.io/kind/pkg/cluster/constants"
 )
 
 const (
 	authConfigPath          = "/etc/kubernetes/authn/authentication-config.yaml"
-	apiserverManifest       = "/etc/kubernetes/manifests/kube-apiserver.yaml"
-	apiserverManifestBackup = "/etc/kubernetes/kube-apiserver.yaml.pre-oidc"
 	defaultDexServiceIP     = "10.96.0.24"
 	dexNamespace            = "dex"
 	dexServiceName          = "dex"
@@ -44,38 +44,35 @@ func WaitForDeploymentReady(kubeconfig, namespace, name string, timeout time.Dur
 }
 
 func ConfigureAPIServerOIDC(name, kubeconfig string, authConfig []byte) error {
-	provider, err := newProvider()
-	if err != nil {
-		return err
-	}
-
 	dexServiceIP, err := dexServiceIP(kubeconfig)
 	if err != nil {
 		return err
 	}
 
-	nodes, err := provider.ListNodes(name)
+	containerName := controlPlanePrefix + name
+
+	exists, err := containerExists(context.Background(), containerName)
 	if err != nil {
-		return fmt.Errorf("list kind nodes: %w", err)
+		return fmt.Errorf("check control-plane container: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("control-plane container %q not found for cluster %q", containerName, name)
 	}
 
-	for _, node := range nodes {
-		role, err := node.Role()
-		if err != nil {
-			return fmt.Errorf("get node role for %s: %w", node.String(), err)
-		}
-		if role != constants.ControlPlaneNodeRoleValue {
-			continue
-		}
+	previousStartTime, err := apiserverObservedStartTime(kubeconfig)
+	if err != nil {
+		return fmt.Errorf("get kube-apiserver start time: %w", err)
+	}
 
-		previousStartTime, err := apiserverObservedStartTime(kubeconfig)
-		if err != nil {
-			return fmt.Errorf("get kube-apiserver start time: %w", err)
-		}
+	authConfigEncoded := base64.StdEncoding.EncodeToString(authConfig)
 
-		authConfigEncoded := base64.StdEncoding.EncodeToString(authConfig)
+	// In vind, the kube-apiserver is managed by the vCluster binary via
+	// a systemd service. We write the auth config, update /etc/hosts for
+	// dex resolution, patch the host-side vCluster config with apiServer
+	// extraArgs, and restart the vCluster service.
 
-		script := fmt.Sprintf(`set -eu
+	// Step 1: Write auth config and /etc/hosts inside the container.
+	script := fmt.Sprintf(`set -eu
 mkdir -p /etc/kubernetes/authn
 printf '%%s' %q | base64 -d > %s
 
@@ -84,42 +81,59 @@ printf '%%s %s\n' %q >> /etc/hosts.shoulders
 printf '%%s %s\n' %q >> /etc/hosts.shoulders
 cat /etc/hosts.shoulders > /etc/hosts
 rm /etc/hosts.shoulders
+`, authConfigEncoded, authConfigPath, dexInternalHosts, dexServiceIP, dexPublicHost, dexServiceIP)
 
-cp %s %s
-tmp=$(mktemp)
-cp %s "$tmp"
-
-perl -0pi -e 's@\n\s*-\s+--authentication-config=%s@@g; s@\n\s*- mountPath: /etc/kubernetes/authn\n\s*name: k8s-authn\n\s*readOnly: true@@g; s@\n\s*- hostPath:\n\s*path: /etc/kubernetes/authn\n\s*type: DirectoryOrCreate\n\s*name: k8s-authn@@g' "$tmp"
-perl -0pi -e 's@(\n\s*- kube-apiserver\n)@$1    - --authentication-config=%s\n@' "$tmp"
-perl -0pi -e 's@(\n\s*- mountPath: /etc/kubernetes/pki\n\s*name: k8s-certs\n\s*readOnly: true\n)@$1    - mountPath: /etc/kubernetes/authn\n      name: k8s-authn\n      readOnly: true\n@' "$tmp"
-perl -0pi -e 's@(\n\s*- hostPath:\n\s*path: /etc/kubernetes/pki\n\s*type: DirectoryOrCreate\n\s*name: k8s-certs\n)@$1  - hostPath:\n      path: /etc/kubernetes/authn\n      type: DirectoryOrCreate\n    name: k8s-authn\n@' "$tmp"
-
-mv "$tmp" %s
-`, authConfigEncoded, authConfigPath, dexInternalHosts, dexServiceIP, dexPublicHost, dexServiceIP, apiserverManifest, apiserverManifestBackup, apiserverManifest, authConfigPath, authConfigPath, apiserverManifest)
-
-		if err := node.Command("sh", "-c", script).Run(); err != nil {
-			return fmt.Errorf("write authentication config on %s: %w", node.String(), err)
-		}
-
-		if err := WaitForAPIServerRestart(kubeconfig, previousStartTime, apiserverRestartTimeout); err != nil {
-			rollback := "cp " + apiserverManifestBackup + " " + apiserverManifest
-			if rollbackErr := node.Command("sh", "-c", rollback).Run(); rollbackErr != nil {
-				return fmt.Errorf("kube-apiserver did not recover after OIDC configuration (%w) and rollback failed on %s: %w", err, node.String(), rollbackErr)
-			}
-			rollbackStartTime, startErr := apiserverObservedStartTime(kubeconfig)
-			if startErr != nil {
-				rollbackStartTime = ""
-			}
-			if rollbackWaitErr := WaitForAPIServerRestart(kubeconfig, rollbackStartTime, apiserverRestartTimeout); rollbackWaitErr != nil {
-				return fmt.Errorf("kube-apiserver did not recover after OIDC configuration (%w) and rollback also failed: %w", err, rollbackWaitErr)
-			}
-			return fmt.Errorf("kube-apiserver did not recover after OIDC configuration, rolled back manifest: %w", err)
-		}
-
-		return nil
+	if out, err := containerExec(context.Background(), containerName, []string{"sh", "-c", script}); err != nil {
+		return fmt.Errorf("write auth config on %s: %w\n%s", containerName, err, string(out))
 	}
 
-	return fmt.Errorf("no control-plane node found for cluster %q", name)
+	// Step 2: Patch the host-side vCluster config (read-only bind mount
+	// inside the container, writable on the host).
+	hostConfigPath := filepath.Join(os.Getenv("HOME"), ".vcluster", "docker", "vclusters", name, "vcluster.yaml")
+	if err := patchVClusterConfig(hostConfigPath); err != nil {
+		return fmt.Errorf("patch vCluster config: %w", err)
+	}
+
+	// Step 3: Restart the vCluster systemd service so the apiserver
+	// picks up the new --authentication-config flag.
+	if out, err := containerExec(context.Background(), containerName, []string{"systemctl", "restart", "vcluster"}); err != nil {
+		return fmt.Errorf("restart vcluster service on %s: %w\n%s", containerName, err, string(out))
+	}
+
+	if err := WaitForAPIServerRestart(kubeconfig, previousStartTime, apiserverRestartTimeout); err != nil {
+		return fmt.Errorf("kube-apiserver did not recover after OIDC configuration: %w", err)
+	}
+
+	return nil
+}
+
+// patchVClusterConfig adds apiServer extraArgs to the vCluster config file
+// on the host. The file is bind-mounted read-only into the container, so we
+// edit it on the host side.
+func patchVClusterConfig(path string) error {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return fmt.Errorf("read %s: %w", path, err)
+	}
+
+	content := string(data)
+	if strings.Contains(content, "authentication-config") {
+		return nil // already patched
+	}
+
+	// Insert apiServer block right after the "    k8s:" line.
+	const marker = "    k8s:\n"
+	insert := marker +
+		"      apiServer:\n" +
+		"        extraArgs:\n" +
+		"        - --authentication-config=" + authConfigPath + "\n"
+
+	patched := strings.Replace(content, marker, insert, 1)
+	if patched == content {
+		return fmt.Errorf("could not find %q marker in %s", strings.TrimSpace(marker), path)
+	}
+
+	return os.WriteFile(path, []byte(patched), 0644)
 }
 
 func WaitForAPIServerRestart(kubeconfig, previousStartTime string, timeout time.Duration) error {
@@ -129,17 +143,29 @@ func WaitForAPIServerRestart(kubeconfig, previousStartTime string, timeout time.
 	}
 
 	deadline := time.Now().Add(timeout)
+
+	if previousStartTime == "" {
+		// No static pod to track (vind). Give the restart a moment,
+		// then wait for the API server to become reachable.
+		time.Sleep(3 * time.Second)
+		for time.Now().Before(deadline) {
+			if _, err := clientset.Discovery().ServerVersion(); err == nil {
+				return nil
+			}
+			time.Sleep(3 * time.Second)
+		}
+		return fmt.Errorf("kube-apiserver did not become ready within %s", timeout)
+	}
+
 	sawUnavailable := false
 	for time.Now().Before(deadline) {
 		startTimeChanged := false
 
-		if previousStartTime != "" {
-			pod, err := clientset.CoreV1().Pods("kube-system").List(context.Background(), metav1.ListOptions{LabelSelector: "component=kube-apiserver"})
-			if err == nil && len(pod.Items) > 0 {
-				currentStartTime := apiserverPodObservedStartTime(&pod.Items[0])
-				if currentStartTime != "" && currentStartTime != previousStartTime {
-					startTimeChanged = true
-				}
+		pod, err := clientset.CoreV1().Pods("kube-system").List(context.Background(), metav1.ListOptions{LabelSelector: "component=kube-apiserver"})
+		if err == nil && len(pod.Items) > 0 {
+			currentStartTime := apiserverPodObservedStartTime(&pod.Items[0])
+			if currentStartTime != "" && currentStartTime != previousStartTime {
+				startTimeChanged = true
 			}
 		}
 

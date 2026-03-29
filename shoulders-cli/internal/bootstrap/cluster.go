@@ -1,76 +1,205 @@
 package bootstrap
 
 import (
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
-	"time"
+	"strings"
 
-	"sigs.k8s.io/kind/pkg/cluster"
-	"sigs.k8s.io/kind/pkg/log"
+	loftlog "github.com/loft-sh/log"
+	vcli "github.com/loft-sh/vcluster/pkg/cli"
+	vclusterconfig "github.com/loft-sh/vcluster/pkg/cli/config"
+	"github.com/loft-sh/vcluster/pkg/cli/flags"
+	"github.com/sirupsen/logrus"
 )
 
-const DefaultClusterName = "shoulders"
+const (
+	DefaultClusterName = "shoulders"
 
-func EnsureKindCluster(name string, kindConfig []byte) (err error) {
-	provider, err := newProvider()
+	// VindVersion is the vCluster release used by shoulders.
+	VindVersion = "0.33.1"
+
+	// ContextPrefix is prepended to the cluster name in kubeconfig contexts.
+	ContextPrefix = "vcluster-docker_"
+
+	// controlPlanePrefix is the Docker container name prefix for vind
+	// control-plane containers (e.g. "vcluster.cp.shoulders").
+	controlPlanePrefix = "vcluster.cp."
+)
+
+// EnsureVindCluster creates a vind (vCluster-in-Docker) cluster if it does
+// not already exist. vindConfig is an optional vCluster values YAML that is
+// passed to CreateDocker via --values.
+func EnsureVindCluster(ctx context.Context, name string, vindConfig []byte) (err error) {
+	exists, err := containerExists(ctx, controlPlanePrefix+name)
 	if err != nil {
-		return err
+		return fmt.Errorf("check if cluster already exists: %w", err)
 	}
-	clusters, err := provider.List()
+	if exists {
+		return nil
+	}
+
+	// The vCluster OCI library reads Docker's credential store when pulling
+	// images from ghcr.io. A stale empty auth entry (e.g. from a previous
+	// "docker login ghcr.io" that was never completed) causes the library to
+	// send empty Basic auth, which GHCR rejects with 403 instead of allowing
+	// an anonymous pull. Clear such entries before proceeding.
+	ensureGHCRAccess()
+
+	configPath, err := vclusterconfig.DefaultFilePath()
 	if err != nil {
-		return err
+		return fmt.Errorf("determine vcluster config path: %w", err)
 	}
-	for _, existing := range clusters {
-		if existing == name {
-			return nil
+
+	globalFlags := &flags.GlobalFlags{Config: configPath}
+	logger := loftlog.NewStreamLogger(os.Stdout, os.Stderr, logrus.InfoLevel)
+
+	options := &vcli.CreateOptions{
+		ChartVersion:  VindVersion,
+		Connect:       true,
+		UpdateCurrent: true,
+	}
+
+	if len(vindConfig) > 0 {
+		tmpDir, tErr := os.MkdirTemp("", "shoulders-vind-*")
+		if tErr != nil {
+			return fmt.Errorf("create temp dir: %w", tErr)
 		}
-	}
+		defer func() {
+			if removeErr := os.RemoveAll(tmpDir); removeErr != nil {
+				err = errors.Join(err, fmt.Errorf("remove temp dir %q: %w", tmpDir, removeErr))
+			}
+		}()
 
-	// Write the embedded config to a temp file for the kind library
-	tmpDir, err := os.MkdirTemp("", "shoulders-kind-*")
-	if err != nil {
-		return fmt.Errorf("create temp dir: %w", err)
-	}
-	defer func() {
-		if removeErr := os.RemoveAll(tmpDir); removeErr != nil {
-			err = errors.Join(err, fmt.Errorf("remove temp dir %q: %w", tmpDir, removeErr))
+		valuesPath := tmpDir + "/values.yaml"
+		if wErr := os.WriteFile(valuesPath, vindConfig, 0o644); wErr != nil {
+			return fmt.Errorf("write vind values: %w", wErr)
 		}
-	}()
-
-	configPath := filepath.Join(tmpDir, "kind-config.yaml")
-	if err := os.WriteFile(configPath, kindConfig, 0o644); err != nil {
-		return fmt.Errorf("write kind config: %w", err)
+		options.Values = []string{valuesPath}
 	}
 
-	return provider.Create(
-		name,
-		cluster.CreateWithConfigFile(configPath),
-		cluster.CreateWithWaitForReady(5*time.Minute),
-	)
+	return vcli.CreateDocker(ctx, options, globalFlags, name, logger)
 }
 
-func DeleteKindCluster(name string) error {
-	provider, err := newProvider()
+// DeleteVindCluster removes a vind cluster and its associated resources.
+func DeleteVindCluster(ctx context.Context, name string) error {
+	configPath, err := vclusterconfig.DefaultFilePath()
 	if err != nil {
-		return err
+		return fmt.Errorf("determine vcluster config path: %w", err)
 	}
-	return provider.Delete(name, "")
+
+	globalFlags := &flags.GlobalFlags{Config: configPath}
+	logger := loftlog.NewStreamLogger(os.Stdout, os.Stderr, logrus.InfoLevel)
+
+	options := &vcli.DeleteOptions{
+		DeleteContext:  true,
+		IgnoreNotFound: true,
+	}
+
+	// Best-effort vCluster deletion; ignore errors since we force-remove below.
+	_ = vcli.DeleteDocker(ctx, nil, options, globalFlags, name, logger)
+
+	// DeleteDocker may report success without actually removing the Docker
+	// containers and volumes. Force-remove them to ensure a clean slate.
+	containers := []string{
+		controlPlanePrefix + name,
+		"vcluster.node." + name + ".worker-1",
+		"vcluster.node." + name + ".worker-2",
+	}
+	for _, c := range containers {
+		_ = removeContainer(ctx, c)
+		for _, suffix := range []string{".bin", ".cni-bin", ".etc", ".var"} {
+			_ = removeVolume(ctx, c+suffix)
+		}
+	}
+	return nil
 }
 
+// ListClusters returns the names of all vind clusters by inspecting Docker
+// containers whose names start with the vind control-plane prefix.
 func ListClusters() ([]string, error) {
-	provider, err := newProvider()
+	names, err := listContainerNames(context.Background(), controlPlanePrefix)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list vind clusters: %w", err)
 	}
-	return provider.List()
+
+	var clusters []string
+	for _, name := range names {
+		if strings.HasPrefix(name, controlPlanePrefix) {
+			clusters = append(clusters, strings.TrimPrefix(name, controlPlanePrefix))
+		}
+	}
+	return clusters, nil
 }
 
-func newProvider() (*cluster.Provider, error) {
-	opt, err := cluster.DetectNodeProvider()
+// ensureGHCRAccess removes stale empty ghcr.io auth entries from the Docker
+// config so that subsequent OCI pulls can proceed anonymously. When Docker's
+// config contains an empty auth entry for ghcr.io together with a credential
+// store (e.g. "desktop"), the loft-sh/image library sends empty Basic
+// credentials, which GHCR rejects with 403. Removing the empty entry
+// allows the library to fall back to an unauthenticated token request.
+func ensureGHCRAccess() {
+	home, err := os.UserHomeDir()
 	if err != nil {
-		return nil, fmt.Errorf("no container runtime detected; please install Docker or Podman: %w", err)
+		return
 	}
-	return cluster.NewProvider(opt, cluster.ProviderWithLogger(log.NoopLogger{})), nil
+
+	configPath := filepath.Join(home, ".docker", "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return
+	}
+
+	var cfg map[string]json.RawMessage
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return
+	}
+
+	authsRaw, ok := cfg["auths"]
+	if !ok {
+		return
+	}
+
+	var auths map[string]json.RawMessage
+	if err := json.Unmarshal(authsRaw, &auths); err != nil {
+		return
+	}
+
+	ghcrEntry, ok := auths["ghcr.io"]
+	if !ok {
+		return
+	}
+
+	// Only remove the entry if it's empty (i.e. "{}"), which indicates a
+	// stale login with no actual credentials stored inline.
+	var entryFields map[string]interface{}
+	if err := json.Unmarshal(ghcrEntry, &entryFields); err != nil {
+		return
+	}
+	if len(entryFields) > 0 {
+		return // has real credentials, leave it alone
+	}
+
+	delete(auths, "ghcr.io")
+
+	updated, err := json.Marshal(auths)
+	if err != nil {
+		return
+	}
+	cfg["auths"] = updated
+
+	out, err := json.MarshalIndent(cfg, "", "\t")
+	if err != nil {
+		return
+	}
+
+	// Preserve original file permissions.
+	info, err := os.Stat(configPath)
+	if err != nil {
+		return
+	}
+	_ = os.WriteFile(configPath, append(out, '\n'), info.Mode())
 }

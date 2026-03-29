@@ -28,7 +28,7 @@ spec:
         kind: HelmRepository
         name: headlamp
         namespace: flux-system
-      version: "0.40.0"
+      version: "0.41.0"
   values:
     volumes:
       - name: dex-ca

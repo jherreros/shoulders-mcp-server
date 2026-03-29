@@ -21,7 +21,8 @@ registerSidebarEntry({
 	name: 'shoulders',
 	label: 'Shoulders',
 	url: '/shoulders',
-	parent: 'cluster',
+	parent: null,
+	icon: 'mdi:view-dashboard',
 });
 
 registerRoute({

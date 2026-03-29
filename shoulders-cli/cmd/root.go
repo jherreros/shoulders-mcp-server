@@ -83,7 +83,7 @@ func outputOption() (output.Format, error) {
 }
 
 // ensureShouldersCluster verifies the current kubeconfig context belongs to
-// a Shoulders-managed kind cluster. Commands in skipClusterCheck are exempt.
+// a Shoulders-managed vind cluster. Commands in skipClusterCheck are exempt.
 func ensureShouldersCluster(cmd *cobra.Command) error {
 	// Walk up to find the top-level subcommand name.
 	name := rootCmdName(cmd)

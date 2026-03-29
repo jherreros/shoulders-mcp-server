@@ -1,6 +1,7 @@
 package kube
 
 import (
+	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 	"k8s.io/client-go/kubernetes"
 )
@@ -19,4 +20,13 @@ func NewClientset(kubeconfig string) (*kubernetes.Clientset, error) {
 		return nil, err
 	}
 	return kubernetes.NewForConfig(config)
+}
+
+// HelmReleaseGVR returns the GroupVersionResource for Flux HelmRelease objects.
+func HelmReleaseGVR() schema.GroupVersionResource {
+	return schema.GroupVersionResource{
+		Group:    "helm.toolkit.fluxcd.io",
+		Version:  "v2",
+		Resource: "helmreleases",
+	}
 }

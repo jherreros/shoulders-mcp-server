@@ -20,7 +20,7 @@ var (
 )
 
 var upPhases = []string{
-	"Create kind cluster",
+	"Create vind cluster",
 	"Install Cilium CNI",
 	"Install Flux CD",
 	"Reconcile Flux kustomizations",
@@ -36,19 +36,29 @@ var upCmd = &cobra.Command{
 		tracker := tui.NewPhaseTracker(upPhases, upVerbose)
 		defer tracker.Stop()
 
-		// Phase 1: Kind cluster
-		tracker.Start(verboseDetail("creating kind cluster %q using embedded config", upClusterName))
-		if err := bootstrap.EnsureKindCluster(upClusterName, manifests.KindConfig); err != nil {
+		// Phase 1: vind cluster
+		tracker.Start(verboseDetail("creating vind cluster %q using embedded config", upClusterName))
+		if err := bootstrap.EnsureVindCluster(cmd.Context(), upClusterName, manifests.VindConfig); err != nil {
 			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to create kind cluster: %w", err)
+			return fmt.Errorf("failed to create vind cluster: %w", err)
 		}
 		tracker.Complete()
 
 		// Phase 2: Cilium
-		tracker.Start(verboseDetail("installing Cilium Helm chart with gatewayAPI and kubeProxyReplacement"))
+		tracker.Start(verboseDetail("installing Gateway API CRDs and Cilium Helm chart with gatewayAPI"))
+		// Install Gateway API CRDs before Cilium so the operator can
+		// register the GatewayClass controller on startup.
+		if err := kube.ApplyManifest(cmd.Context(), kubeconfig, manifests.GatewayAPICRDs, ""); err != nil {
+			tracker.Fail(err.Error())
+			return fmt.Errorf("failed to install gateway api crds: %w", err)
+		}
 		if err := bootstrap.EnsureCilium(kubeconfig); err != nil {
 			tracker.Fail(err.Error())
 			return fmt.Errorf("failed to install cilium: %w", err)
+		}
+		if err := bootstrap.RestartStuckPods(kubeconfig); err != nil {
+			tracker.Fail(err.Error())
+			return fmt.Errorf("failed to restart stuck pods: %w", err)
 		}
 		tracker.Complete()
 
@@ -61,6 +71,13 @@ var upCmd = &cobra.Command{
 			tracker.Fail(err.Error())
 			return fmt.Errorf("failed to install flux: %w", err)
 		}
+		// Suspend the Flux-managed Cilium HelmRelease so the helm-controller
+		// does not override the CLI-managed Cilium installation with values
+		// from the Git repo that may be incompatible with vind.
+		if err := bootstrap.SuspendCiliumHelmRelease(kubeconfig); err != nil {
+			tracker.Fail(err.Error())
+			return fmt.Errorf("failed to suspend cilium helmrelease: %w", err)
+		}
 		tracker.Complete()
 
 		// Phase 4: Flux reconciliation
@@ -68,6 +85,13 @@ var upCmd = &cobra.Command{
 		if err := waitForFluxTUI(tracker); err != nil {
 			tracker.Fail(err.Error())
 			return err
+		}
+		// Delete any pods stuck in ContainerCreating from the initial
+		// Flux reconciliation. The burst of pod creation can overwhelm
+		// Cilium's endpoint API, leaving pods in exponential backoff.
+		if err := bootstrap.RestartStuckPods(kubeconfig); err != nil {
+			tracker.Fail(err.Error())
+			return fmt.Errorf("failed to restart stuck pods: %w", err)
 		}
 		tracker.Complete()
 
@@ -88,11 +112,7 @@ var upCmd = &cobra.Command{
 		tracker.Complete()
 
 		// Phase 6: Gateway routes
-		tracker.Start(verboseDetail("restarting Cilium workloads and resolving HTTPRoutes"))
-		if err := bootstrap.RestartCiliumWorkloads(kubeconfig); err != nil {
-			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to restart cilium after flux reconciliation: %w", err)
-		}
+		tracker.Start(verboseDetail("resolving HTTPRoutes"))
 		routes := []struct{ ns, name string }{
 			{"dex", "dex"},
 			{"headlamp", "headlamp"},
@@ -151,6 +171,20 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 			if ready {
 				return nil
 			}
+			// The crossplane kustomization requires Crossplane CRDs which
+			// are only available after Crossplane pods start. Allow it to
+			// remain not-ready during bootstrap; it will reconcile once
+			// Crossplane is fully running.
+			allCrossplane := true
+			for _, p := range pending {
+				if p != "crossplane" {
+					allCrossplane = false
+					break
+				}
+			}
+			if allCrossplane && len(pending) > 0 {
+				return nil
+			}
 			tracker.UpdateDetail(fmt.Sprintf("pending: %s", strings.Join(pending, ", ")))
 		case <-timeout:
 			return fmt.Errorf("timed out waiting for Flux Kustomizations")
@@ -159,6 +193,6 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 }
 
 func init() {
-	upCmd.Flags().StringVar(&upClusterName, "name", bootstrap.DefaultClusterName, "Name of the kind cluster")
+	upCmd.Flags().StringVar(&upClusterName, "name", bootstrap.DefaultClusterName, "Name of the vind cluster")
 	upCmd.Flags().BoolVarP(&upVerbose, "verbose", "v", false, "Show detailed progress information for each phase")
 }

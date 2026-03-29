@@ -9,6 +9,7 @@ import (
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 )
 
 var httpRouteGVR = schema.GroupVersionResource{
@@ -23,9 +24,19 @@ func WaitForHTTPRouteResolved(kubeconfig, namespace, name string, timeout time.D
 		return err
 	}
 
+	ctx := context.Background()
+
+	// Annotate the route to force the Cilium gateway controller to
+	// re-evaluate it. This handles the case where the route was created
+	// before its backend service existed.
+	patch := []byte(`{"metadata":{"annotations":{"shoulders.dev/reconcile":"` + time.Now().UTC().Format(time.RFC3339) + `"}}}`)
+	_, _ = dynamicClient.Resource(httpRouteGVR).Namespace(namespace).Patch(
+		ctx, name, types.MergePatchType, patch, metav1.PatchOptions{},
+	)
+
 	deadline := time.Now().Add(timeout)
 	for time.Now().Before(deadline) {
-		route, err := dynamicClient.Resource(httpRouteGVR).Namespace(namespace).Get(context.Background(), name, metav1.GetOptions{})
+		route, err := dynamicClient.Resource(httpRouteGVR).Namespace(namespace).Get(ctx, name, metav1.GetOptions{})
 		if err == nil && httpRouteResolved(route) {
 			return nil
 		}

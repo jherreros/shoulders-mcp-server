@@ -1,7 +1,7 @@
 # Copilot instructions for Shoulders
 
 ## Big picture architecture
-- The repo is a 3-layer platform: `1-cluster/` creates a local kind cluster, `2-addons/` installs platform services via FluxCD, and `3-user-space/` contains team-facing examples.
+- The repo is a 3-layer platform: `1-cluster/` creates a local vind (vCluster-in-Docker) cluster, `2-addons/` installs platform services via FluxCD, and `3-user-space/` contains team-facing examples.
 - Flux kustomizations in `2-addons/flux/kustomizations.yaml` enforce install order: helm repositories → namespaces → helm releases → crossplane → gateway.
 - Crossplane defines the IDP abstractions in `2-addons/manifests/crossplane/definitions/` (XRDs) and implements them with compositions in `2-addons/manifests/crossplane/compositions/`.
 
@@ -12,7 +12,7 @@
 - `state-store-composition.yaml` conditionally emits CloudNativePG and Redis resources with Go templates; note the fixed `app-secret` secret and base64-encoded creds.
 
 ## Developer workflows
-- Cluster bootstrap: `1-cluster/create-cluster.sh` creates a kind cluster named `shoulders`.
+- Cluster bootstrap: `1-cluster/create-cluster.sh` creates a vind cluster named `shoulders`.
 - Platform install: `2-addons/install-addons.sh` installs Cilium via Helm, ensures Flux CLI is present, then `flux install` + `kubectl apply -f 2-addons/flux/`.
 - Observability access: README documents Grafana port-forward (`svc/kube-prometheus-stack-grafana` in `observability`).
 

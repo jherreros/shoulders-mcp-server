@@ -3,8 +3,8 @@ package manifests
 
 import _ "embed"
 
-//go:embed kind-config.yaml
-var KindConfig []byte
+//go:embed vind-config.yaml
+var VindConfig []byte
 
 //go:embed authentication-config.yaml
 var AuthenticationConfig []byte
@@ -14,3 +14,6 @@ var FluxGitRepository []byte
 
 //go:embed flux/kustomizations.yaml
 var FluxKustomizations []byte
+
+//go:embed gateway-api-crds.yaml
+var GatewayAPICRDs []byte
