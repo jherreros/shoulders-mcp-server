@@ -123,12 +123,12 @@ export function buildKubeClients() {
   };
 }
 
-export function listKindClusters(kubeConfig: KubeConfig): string[] {
+export function listVindClusters(kubeConfig: KubeConfig): string[] {
   return kubeConfig
     .getContexts()
     .map((ctx) => ctx.name)
-    .filter((name) => name.startsWith("kind-"))
-    .map((name) => name.replace(/^kind-/, ""))
+    .filter((name) => name.startsWith("vcluster-docker_"))
+    .map((name) => name.replace(/^vcluster-docker_/, ""))
     .sort();
 }
 

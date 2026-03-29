@@ -20,7 +20,7 @@ import {
   getCurrentWorkspace,
   httpGetJson,
   isNotFoundError,
-  listKindClusters,
+  listVindClusters,
   readFileText,
   resolveRepoRoot,
   resolveKubeconfigPath,
@@ -341,7 +341,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "list_clusters",
-        description: "List local kind clusters",
+        description: "List local vind clusters",
         inputSchema: {
           type: "object",
           properties: {}
@@ -349,7 +349,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "use_cluster",
-        description: "Switch kube context to a local kind cluster",
+        description: "Switch kube context to a local vind cluster",
         inputSchema: {
           type: "object",
           properties: {
@@ -818,14 +818,14 @@ async function getPlatformStatus() {
 
 async function listClusters() {
   const { kubeConfig } = buildKubeClients();
-  const clusters = listKindClusters(kubeConfig);
+  const clusters = listVindClusters(kubeConfig);
   return ok("Clusters listed", clusters, { source: "kubernetes" });
 }
 
 async function useCluster(args: UseClusterArgs) {
   validateK8sName(args.name, "cluster name");
   const kubeconfigPath = resolveKubeconfigPath();
-  const contextName = `kind-${args.name}`;
+  const contextName = `vcluster-docker_${args.name}`;
   await setCurrentContext(kubeconfigPath, contextName);
   return ok("Cluster selected", { name: args.name, context: contextName }, { source: "kubernetes" });
 }
