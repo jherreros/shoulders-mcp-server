@@ -52,7 +52,7 @@ jobs:
         run: npm ci
 
       - name: Align plugin version with tag
-        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version
+        run: npm version "${GITHUB_REF_NAME#v}" --no-git-tag-version --allow-same-version
 
       - name: Build plugin
         run: npm run build
