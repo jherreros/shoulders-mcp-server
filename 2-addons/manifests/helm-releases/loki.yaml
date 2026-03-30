@@ -37,3 +37,8 @@ spec:
       replicas: 0
     backend:
       replicas: 0
+    monitoring:
+      serviceMonitor:
+        enabled: true
+      dashboards:
+        enabled: true

@@ -26,7 +26,7 @@ Creates a Kubernetes cluster using **vind** (vCluster in Docker) for local devel
 ### 2. Addons Layer (`2-addons/`)
 Installs platform components using **FluxCD** for GitOps-based deployment. Flux Kustomizations enforce install order: helm repositories → namespaces → helm releases → crossplane → gateway → dex → headlamp.
 
-- **Helm Repositories & Releases** — Core platform software (Cilium, Crossplane, CloudNativePG, Strimzi, Kyverno, Prometheus stack, Loki, Tempo, Alloy, Dex, Headlamp).
+- **Helm Repositories & Releases** — Core platform software (Cilium, Crossplane, CloudNativePG, Strimzi, Kyverno, Prometheus stack, Loki, Tempo, Alloy, Dex, Headlamp, Trivy Operator, Falco, Policy Reporter).
 - **Crossplane Abstractions** — XRDs, Compositions, and Functions that define the developer-facing API.
 - **Gateway** — Gateway API CRDs and a Cilium-backed `Gateway` resource for HTTP routing.
 - **Headlamp** — Developer portal with the Shoulders plugin loaded via `pluginsManager`.
@@ -55,6 +55,9 @@ A Headlamp plugin that renders a self-service UI for Shoulders resources inside 
 | [Strimzi](https://strimzi.io) | Kubernetes-native Apache Kafka operator |
 | [CloudNativePG](https://cloudnative-pg.io) | PostgreSQL operator for Kubernetes |
 | [Kyverno](https://kyverno.io) | Policy-as-code for security and governance |
+| [Trivy Operator](https://aquasecurity.github.io/trivy-operator/) | Vulnerability and misconfiguration scanning |
+| [Falco](https://falco.org) | Runtime threat detection |
+| [Policy Reporter](https://kyverno.github.io/policy-reporter/) | Aggregated policy and security reporting UI with Grafana dashboards |
 | [Dex](https://dexidp.io) | OIDC identity provider for SSO into Grafana and Headlamp |
 | [Headlamp](https://headlamp.dev) | Kubernetes web UI, extended via the Shoulders portal plugin |
 
@@ -86,6 +89,15 @@ This will:
 shoulders status
 ```
 
+### Stop and resume
+
+You can stop the cluster to free resources and start it again later without re-provisioning:
+
+```bash
+shoulders stop            # Stops Docker containers (control-plane + workers)
+shoulders start           # Resumes a previously stopped cluster
+```
+
 ## CLI Reference
 
 The `shoulders` CLI supports the following commands:
@@ -93,7 +105,9 @@ The `shoulders` CLI supports the following commands:
 ```
 shoulders up                            # Create cluster and install platform
 shoulders down                          # Delete the vind cluster
-shoulders status                        # Cluster and platform health
+shoulders start                         # Start a previously stopped cluster
+shoulders stop                          # Stop the cluster without deleting it
+shoulders status                        # Cluster and platform health (nodes, pods, Flux, Crossplane, Gateway)
 
 shoulders workspace create <name>       # Create a Workspace
 shoulders workspace list                # List Workspaces
@@ -117,6 +131,7 @@ shoulders cluster use <name>            # Switch context to a cluster
 shoulders logs <app-name>               # Fetch logs (Loki if available, else pod logs)
 shoulders dashboard                     # Open Grafana (prefers OIDC at grafana.localhost; falls back to localhost:3000)
 shoulders headlamp                      # Open Headlamp (prefers OIDC at headlamp.localhost; falls back to localhost:4466)
+shoulders reporter                      # Open Policy Reporter UI (prefers reporter.localhost; falls back to localhost:8082)
 ```
 
 Global flags: `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
@@ -243,6 +258,22 @@ Shoulders comes with a pre-configured observability stack:
 - **[Loki](https://grafana.com/oss/loki/)** — Log aggregation.
 - **[Tempo](https://grafana.com/oss/tempo/)** — Distributed tracing.
 - **[Grafana Alloy](https://grafana.com/oss/alloy/)** — Unified collector for logs, metrics, and traces.
+
+## Security & Compliance
+
+Shoulders ships with a security and compliance stack that integrates with both Policy Reporter and Grafana:
+
+- **[Kyverno](https://kyverno.io)** — Policy engine with baseline Pod Security Standard policies in audit mode. Generates PolicyReport CRDs consumed by Policy Reporter.
+- **[Kyverno Policies](https://kyverno.io/policies/)** — Community best-practice policies (baseline pod security).
+- **[Trivy Operator](https://aquasecurity.github.io/trivy-operator/)** — Continuous vulnerability and misconfiguration scanning. Produces VulnerabilityReports integrated into Policy Reporter via its Trivy plugin.
+- **[Falco](https://falco.org)** — Runtime threat detection using eBPF. Falcosidekick forwards events as PolicyReport CRDs for Policy Reporter aggregation.
+- **[Policy Reporter](https://kyverno.github.io/policy-reporter/)** — Unified dashboard aggregating policy results from Kyverno, Trivy, and Falco. Includes Prometheus metrics and Grafana dashboards.
+
+Access the Policy Reporter UI:
+
+```bash
+shoulders reporter
+```
 
 ## Identity and Access
 

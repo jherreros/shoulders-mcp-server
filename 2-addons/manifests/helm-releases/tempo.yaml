@@ -23,11 +23,16 @@ spec:
             path: /var/tempo/traces
           wal:
             path: /var/tempo/wal
+      metricsGenerator:
+        enabled: true
+        remoteWriteUrl: "http://kube-prometheus-stack-prometheus.observability:9090/api/v1/write"
     persistence:
       enabled: true
       size: 1Gi
     securityContext:
       fsGroup: 10001
+    serviceMonitor:
+      enabled: true
     volumes:
       - name: tempo-data
         emptyDir: {}

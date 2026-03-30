@@ -9,3 +9,7 @@ resources:
   - crossplane.yaml
   - headlamp.yaml
   - observability.yaml
+  - trivy-operator.yaml
+  - trivy-operator-polr-adapter.yaml
+  - falcosecurity.yaml
+  - policy-reporter.yaml

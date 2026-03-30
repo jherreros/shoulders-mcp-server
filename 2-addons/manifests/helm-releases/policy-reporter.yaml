@@ -1,0 +1,42 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: policy-reporter
+  namespace: policy-reporter
+spec:
+  dependsOn:
+    - name: kyverno
+      namespace: kyverno
+    - name: trivy-operator
+      namespace: trivy-system
+  interval: 5m
+  chart:
+    spec:
+      chart: policy-reporter
+      sourceRef:
+        kind: HelmRepository
+        name: policy-reporter
+        namespace: flux-system
+      version: "3.7.3"
+  values:
+    metrics:
+      enabled: true
+    rest:
+      enabled: true
+    ui:
+      enabled: true
+      name: "Shoulders"
+      displayMode: ""
+    plugin:
+      kyverno:
+        enabled: true
+      trivy:
+        enabled: true
+    monitoring:
+      enabled: true
+      grafana:
+        dashboards:
+          enabled: true
+        namespace: observability
+        folder:
+          name: "Policy Reporter"

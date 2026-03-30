@@ -13,3 +13,21 @@ spec:
         name: kyverno
         namespace: flux-system
       version: "3.7.1"
+  values:
+    admissionController:
+      serviceMonitor:
+        enabled: true
+    backgroundController:
+      serviceMonitor:
+        enabled: true
+    cleanupController:
+      serviceMonitor:
+        enabled: true
+    reportsController:
+      serviceMonitor:
+        enabled: true
+    features:
+      backgroundScan:
+        backgroundScanInterval: 10m
+    grafana:
+      enabled: true

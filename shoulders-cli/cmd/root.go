@@ -19,6 +19,8 @@ var skipClusterCheck = map[string]bool{
 	"up":      true,
 	"update":  true,
 	"cluster": true,
+	"start":   true,
+	"stop":    true,
 	"help":    true,
 	"version": true,
 }
@@ -71,6 +73,9 @@ func init() {
 	rootCmd.AddCommand(portalCmd)
 	rootCmd.AddCommand(logsCmd)
 	rootCmd.AddCommand(updateCmd)
+	rootCmd.AddCommand(reporterCmd)
+	rootCmd.AddCommand(startCmd)
+	rootCmd.AddCommand(stopCmd)
 }
 
 func initConfig() {

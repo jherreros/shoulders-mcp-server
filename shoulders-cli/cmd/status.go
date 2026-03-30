@@ -22,6 +22,8 @@ type statusSummary struct {
 	K8sVersion   string   `json:"k8sVersion" yaml:"k8sVersion"`
 	NodesReady   bool     `json:"nodesReady" yaml:"nodesReady"`
 	NodeCount    int      `json:"nodeCount" yaml:"nodeCount"`
+	TotalPods    int      `json:"totalPods" yaml:"totalPods"`
+	HealthyPods  int      `json:"healthyPods" yaml:"healthyPods"`
 	FluxReady    bool     `json:"fluxReady" yaml:"fluxReady"`
 	FluxBroken   []string `json:"fluxBroken" yaml:"fluxBroken"`
 	XPlaneReady  bool     `json:"crossplaneReady" yaml:"crossplaneReady"`
@@ -96,7 +98,20 @@ func gatherStatus(ctx context.Context) (statusSummary, error) {
 		xpUnhealthy = []string{err.Error()}
 	}
 
-	// 5. Gateway
+	// 5. Pods
+	podList, err := clientset.CoreV1().Pods("").List(ctx, v1.ListOptions{})
+	totalPods := 0
+	healthyPods := 0
+	if err == nil {
+		totalPods = len(podList.Items)
+		for _, pod := range podList.Items {
+			if isPodHealthy(pod) {
+				healthyPods++
+			}
+		}
+	}
+
+	// 6. Gateway
 	gwReady := false
 	gwAddr := "Pending"
 	gwProgrammed := false
@@ -134,6 +149,8 @@ func gatherStatus(ctx context.Context) (statusSummary, error) {
 		K8sVersion:   k8sVersion,
 		NodesReady:   nodesReady,
 		NodeCount:    len(nodes.Items),
+		TotalPods:    totalPods,
+		HealthyPods:  healthyPods,
 		FluxReady:    fluxReady,
 		FluxBroken:   fluxPending,
 		XPlaneReady:  xpReady,
@@ -192,11 +209,27 @@ func isNodeReady(node corev1.Node) bool {
 	return false
 }
 
+func isPodHealthy(pod corev1.Pod) bool {
+	switch pod.Status.Phase {
+	case corev1.PodSucceeded:
+		return true
+	case corev1.PodRunning:
+		for _, cond := range pod.Status.Conditions {
+			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
+				return true
+			}
+		}
+	}
+	return false
+}
+
 func renderStatusTUI(s statusSummary) string {
 	var b strings.Builder
 
 	b.WriteString(tui.Header("Shoulders Platform Status") + "\n\n")
 	b.WriteString(tui.StatusLine("Cluster", s.NodesReady, fmt.Sprintf("%s • %d node(s)", s.K8sVersion, s.NodeCount)) + "\n")
+	podsHealthy := s.TotalPods > 0 && s.HealthyPods == s.TotalPods
+	b.WriteString(tui.StatusLine("Pods", podsHealthy, fmt.Sprintf("%d/%d healthy", s.HealthyPods, s.TotalPods)) + "\n")
 	b.WriteString(tui.StatusLine("Flux CD", s.FluxReady, formatDetail(s.FluxBroken)) + "\n")
 	b.WriteString(tui.StatusLine("Crossplane", s.XPlaneReady, formatDetail(s.XPlaneBroken)) + "\n")
 	b.WriteString(tui.StatusLine("Gateway", s.GatewayReady, s.GatewayAddr) + "\n")

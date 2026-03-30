@@ -1,6 +1,87 @@
 package cmd
 
-import "testing"
+import (
+	"testing"
+
+	corev1 "k8s.io/api/core/v1"
+)
+
+func TestIsPodHealthy(t *testing.T) {
+	tests := []struct {
+		name string
+		pod  corev1.Pod
+		want bool
+	}{
+		{
+			name: "RunningAndReady",
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionTrue},
+					},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "RunningButNotReady",
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+					Conditions: []corev1.PodCondition{
+						{Type: corev1.PodReady, Status: corev1.ConditionFalse},
+					},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "RunningNoConditions",
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodRunning,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "Succeeded",
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodSucceeded,
+				},
+			},
+			want: true,
+		},
+		{
+			name: "Pending",
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodPending,
+				},
+			},
+			want: false,
+		},
+		{
+			name: "Failed",
+			pod: corev1.Pod{
+				Status: corev1.PodStatus{
+					Phase: corev1.PodFailed,
+				},
+			},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := isPodHealthy(tt.pod); got != tt.want {
+				t.Errorf("isPodHealthy() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
 
 func TestFormatStatus(t *testing.T) {
 	tests := []struct {

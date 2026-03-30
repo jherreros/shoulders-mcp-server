@@ -5,7 +5,7 @@ resources:
   - dex-tls-secret.yaml
   - dex.yaml
   - kyverno.yaml
-
+  - kyverno-policies.yaml
   - strimzi.yaml
   - cnpg.yaml
   - crossplane.yaml
@@ -14,3 +14,7 @@ resources:
   - tempo.yaml
   - kube-prometheus-stack.yaml
   - alloy.yaml
+  - trivy-operator.yaml
+  - trivy-operator-polr-adapter.yaml
+  - falco.yaml
+  - policy-reporter.yaml

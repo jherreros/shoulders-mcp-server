@@ -6,3 +6,4 @@ resources:
   - dex-httproute.yaml
   - grafana-httproute.yaml
   - headlamp-httproute.yaml
+  - reporter-httproute.yaml

@@ -61,6 +61,7 @@ go build -o shoulders
 ./shoulders status --wait             # Poll until all components are healthy
 ./shoulders dashboard                 # Opens grafana.localhost (falls back to localhost:3000)
 ./shoulders portal                    # Opens Headlamp portal (falls back to localhost:4466)
+./shoulders reporter                  # Opens Policy Reporter UI (falls back to localhost:8082)
 ```
 
 `*.localhost` access requires host port `80` to be available when the cluster is created. If you changed these settings, recreate the cluster:
@@ -82,6 +83,7 @@ Use `-o table|json|yaml` for supported list and status commands.
 - `shoulders up` provisions the cluster via the vCluster Go library (vind/Docker driver) and installs Cilium + Flux without running shell scripts. It pulls the Cilium chart and Flux install manifest from their upstream URLs.
 - `shoulders up --verbose` shows detailed descriptions for each bootstrap phase.
 - `shoulders up` displays a live timer, per-phase durations, and a final summary (e.g. "Shoulders platform provisioned in 04:32").
+- `shoulders reporter` opens the Policy Reporter UI at `reporter.localhost`, falling back to a local port-forward on port 8082.
 - `shoulders infra add-stream` supports `--partitions`, `--replicas`, and repeatable `--config key=value` entries.
 - `shoulders up` and `down` support `--name` to create/delete specifically named clusters.
 - `shoulders status --wait` polls every 3 seconds and refreshes the TUI display until all components are healthy.

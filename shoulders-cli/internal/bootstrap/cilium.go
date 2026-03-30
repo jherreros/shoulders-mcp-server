@@ -80,6 +80,38 @@ func EnsureCilium(kubeconfigPath string) error {
 		"extraConfig": map[string]interface{}{
 			"api-rate-limit": "endpoint-create=rate-limit:100/s,rate-burst:50",
 		},
+		"prometheus": map[string]interface{}{
+			"enabled": true,
+			"serviceMonitor": map[string]interface{}{
+				"enabled": true,
+			},
+		},
+		"dashboards": map[string]interface{}{
+			"enabled": true,
+			"annotations": map[string]interface{}{
+				"grafana_folder": "Cilium",
+			},
+		},
+		"hubble": map[string]interface{}{
+			"metrics": map[string]interface{}{
+				"enableOpenMetrics": true,
+				"enabled": []string{
+					"dns",
+					"drop",
+					"tcp",
+					"flow",
+					"port-distribution",
+					"icmp",
+					"httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction",
+				},
+				"dashboards": map[string]interface{}{
+					"enabled": true,
+					"annotations": map[string]interface{}{
+						"grafana_folder": "Cilium",
+					},
+				},
+			},
+		},
 	}
 
 	if releaseExists(actionConfig, ciliumChartName) {

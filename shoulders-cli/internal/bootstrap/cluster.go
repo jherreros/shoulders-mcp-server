@@ -104,18 +104,46 @@ func DeleteVindCluster(ctx context.Context, name string) error {
 
 	// DeleteDocker may report success without actually removing the Docker
 	// containers and volumes. Force-remove them to ensure a clean slate.
-	containers := []string{
-		controlPlanePrefix + name,
-		"vcluster.node." + name + ".worker-1",
-		"vcluster.node." + name + ".worker-2",
-	}
-	for _, c := range containers {
+	for _, c := range vindContainerNames(name) {
 		_ = removeContainer(ctx, c)
 		for _, suffix := range []string{".bin", ".cni-bin", ".etc", ".var"} {
 			_ = removeVolume(ctx, c+suffix)
 		}
 	}
 	return nil
+}
+
+// StopVindCluster stops a vind cluster by stopping its Docker containers
+// (control-plane and worker nodes) without deleting them.
+func StopVindCluster(ctx context.Context, name string) error {
+	containers := vindContainerNames(name)
+	for _, c := range containers {
+		if err := stopContainer(ctx, c); err != nil {
+			return fmt.Errorf("stop cluster %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// StartVindCluster starts a previously stopped vind cluster by starting its
+// Docker containers (control-plane and worker nodes).
+func StartVindCluster(ctx context.Context, name string) error {
+	containers := vindContainerNames(name)
+	for _, c := range containers {
+		if err := startContainer(ctx, c); err != nil {
+			return fmt.Errorf("start cluster %q: %w", name, err)
+		}
+	}
+	return nil
+}
+
+// vindContainerNames returns the Docker container names for a vind cluster.
+func vindContainerNames(name string) []string {
+	return []string{
+		controlPlanePrefix + name,
+		"vcluster.node." + name + ".worker-1",
+		"vcluster.node." + name + ".worker-2",
+	}
 }
 
 // ListClusters returns the names of all vind clusters by inspecting Docker

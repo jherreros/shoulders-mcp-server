@@ -1,0 +1,15 @@
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: policy-reporter
+  namespace: policy-reporter
+spec:
+  parentRefs:
+    - name: cilium-gateway
+      namespace: kube-system
+  hostnames:
+    - reporter.localhost
+  rules:
+    - backendRefs:
+        - name: policy-reporter-ui
+          port: 8080

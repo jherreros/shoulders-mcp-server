@@ -18,6 +18,9 @@ spec:
   values:
     grafana:
       assertNoLeakedSecrets: false
+      sidecar:
+        dashboards:
+          searchNamespace: ALL
       grafana.ini:
         server:
           root_url: http://grafana.localhost

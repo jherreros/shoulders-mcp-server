@@ -97,6 +97,37 @@ func listContainerNames(ctx context.Context, namePrefix string) ([]string, error
 	return names, nil
 }
 
+// stopContainer stops a running Docker container by name, ignoring
+// not-found errors.
+func stopContainer(ctx context.Context, name string) error {
+	cli, err := dockerClient()
+	if err != nil {
+		return fmt.Errorf("create docker client: %w", err)
+	}
+	defer cli.Close() //nolint:errcheck // best-effort cleanup
+
+	err = cli.ContainerStop(ctx, name, container.StopOptions{})
+	if err != nil && !errdefs.IsNotFound(err) {
+		return fmt.Errorf("stop container %q: %w", name, err)
+	}
+	return nil
+}
+
+// startContainer starts a stopped Docker container by name.
+func startContainer(ctx context.Context, name string) error {
+	cli, err := dockerClient()
+	if err != nil {
+		return fmt.Errorf("create docker client: %w", err)
+	}
+	defer cli.Close() //nolint:errcheck // best-effort cleanup
+
+	err = cli.ContainerStart(ctx, name, container.StartOptions{})
+	if err != nil {
+		return fmt.Errorf("start container %q: %w", name, err)
+	}
+	return nil
+}
+
 // containerExec runs a command inside a running container and returns the
 // combined stdout+stderr output.
 func containerExec(ctx context.Context, containerName string, cmd []string) ([]byte, error) {

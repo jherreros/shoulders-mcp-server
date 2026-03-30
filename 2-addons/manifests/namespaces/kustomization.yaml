@@ -9,3 +9,6 @@ resources:
   - kafka-namespace.yaml
   - headlamp-namespace.yaml
   - observability-namespace.yaml
+  - trivy-system-namespace.yaml
+  - falco-namespace.yaml
+  - policy-reporter-namespace.yaml
