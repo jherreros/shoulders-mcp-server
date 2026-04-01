@@ -25,7 +25,7 @@ import {
 	TextField,
 	Typography,
 } from '@mui/material';
-import OpenInNewIcon from '@mui/icons-material/OpenInNew';
+import { Icon } from '@iconify/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchResourceList } from '../api';
 import { formatTimestamp } from '../portalUtils';
@@ -270,7 +270,7 @@ export function ShouldersPortal() {
 												gap={0.5}
 											>
 												{ui.label}
-												<OpenInNewIcon fontSize="inherit" />
+												<Icon icon="mdi:open-in-new" width="1em" height="1em" />
 											</Link>
 											<Typography variant="body2" color="text.secondary">
 												{ui.description}

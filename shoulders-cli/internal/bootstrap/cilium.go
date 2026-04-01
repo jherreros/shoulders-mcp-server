@@ -93,6 +93,12 @@ func EnsureCilium(kubeconfigPath string) error {
 			},
 		},
 		"hubble": map[string]interface{}{
+			"relay": map[string]interface{}{
+				"enabled": true,
+			},
+			"ui": map[string]interface{}{
+				"enabled": true,
+			},
 			"metrics": map[string]interface{}{
 				"enableOpenMetrics": true,
 				"enabled": []string{

@@ -57,6 +57,7 @@ spec:
     - name: helm-repositories
     - name: namespaces
     - name: crds
+    - name: headlamp
 ---
 apiVersion: kustomize.toolkit.fluxcd.io/v1
 kind: Kustomization
@@ -131,4 +132,4 @@ spec:
     kind: GitRepository
     name: flux-system
   dependsOn:
-    - name: helm-releases
+    - name: namespaces

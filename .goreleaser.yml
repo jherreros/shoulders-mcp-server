@@ -4,6 +4,7 @@ project_name: shoulders
 
 before:
   hooks:
+    - sh -c "cd shoulders-cli && go generate ./..."
     - sh -c "cd shoulders-cli && go mod tidy"
 
 builds:
