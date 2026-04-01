@@ -1,4 +1,3 @@
-import { resourceConfigs } from './resourceConfigs';
 import {
 	buildManifest,
 	getCreatePath,
@@ -6,6 +5,7 @@ import {
 	parseListInput,
 	validateForm,
 } from './portalUtils';
+import { resourceConfigs } from './resourceConfigs';
 
 describe('portalUtils', () => {
 	it('parses comma and newline list input', () => {

@@ -19,7 +19,6 @@ import {
 } from '@mui/material';
 import { load } from 'js-yaml';
 import React, { useEffect, useState } from 'react';
-import { resourceConfigs } from '../resourceConfigs';
 import {
 	buildManifest,
 	getCreatePath,
@@ -27,6 +26,7 @@ import {
 	manifestToYaml,
 	validateForm,
 } from '../portalUtils';
+import { resourceConfigs } from '../resourceConfigs';
 import { CreateFormState, CreateMode, ResourceConfig } from '../types';
 
 type CreateResourceDialogProps = {

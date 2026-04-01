@@ -1,3 +1,4 @@
+import { Icon } from '@iconify/react';
 import { SectionBox } from '@kinvolk/headlamp-plugin/lib/CommonComponents';
 import {
 	Alert,
@@ -7,11 +8,11 @@ import {
 	CardContent,
 	Checkbox,
 	Chip,
-	Divider,
 	Dialog,
 	DialogActions,
 	DialogContent,
 	DialogTitle,
+	Divider,
 	FormControl,
 	Grid,
 	InputLabel,
@@ -25,19 +26,12 @@ import {
 	TextField,
 	Typography,
 } from '@mui/material';
-import { Icon } from '@iconify/react';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchResourceList } from '../api';
 import { formatTimestamp } from '../portalUtils';
 import { resourceConfigs } from '../resourceConfigs';
 import { ResourceItem } from '../types';
 import { CreateResourceDialog } from './CreateResourceDialog';
-
-function getStatusLabel(value: boolean | null) {
-	if (value === true) return 'Healthy';
-	if (value === false) return 'Unhealthy';
-	return 'Unknown';
-}
 
 function getSyncLabel(value: boolean | null) {
 	if (value === true) return 'In Sync';
