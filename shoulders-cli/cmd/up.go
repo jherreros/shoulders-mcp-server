@@ -26,7 +26,7 @@ var upPhases = []string{
 	"Reconcile Flux kustomizations",
 	"Wait for platform deployments",
 	"Configure gateway routes",
-	"Configure API server OIDC",
+	"Validate cluster status",
 }
 
 var upCmd = &cobra.Command{
@@ -38,7 +38,7 @@ var upCmd = &cobra.Command{
 
 		// Phase 1: vind cluster
 		tracker.Start(verboseDetail("creating vind cluster %q using embedded config", upClusterName))
-		if err := bootstrap.EnsureVindCluster(cmd.Context(), upClusterName, manifests.VindConfig); err != nil {
+		if err := bootstrap.EnsureVindCluster(cmd.Context(), upClusterName, manifests.VindConfig, manifests.AuthenticationConfig); err != nil {
 			tracker.Fail(err.Error())
 			return fmt.Errorf("failed to create vind cluster: %w", err)
 		}
@@ -129,11 +129,11 @@ var upCmd = &cobra.Command{
 		}
 		tracker.Complete()
 
-		// Phase 7: OIDC
-		tracker.Start(verboseDetail("writing authentication-config to control-plane node and restarting kube-apiserver"))
-		if err := bootstrap.ConfigureAPIServerOIDC(upClusterName, kubeconfig, manifests.AuthenticationConfig); err != nil {
+		// Phase 7: Status validation
+		tracker.Start(verboseDetail("waiting for shoulders status to report all systems healthy"))
+		if err := waitForHealthyStatus(cmd.Context(), 5*time.Minute); err != nil {
 			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to configure kube-apiserver OIDC: %w", err)
+			return fmt.Errorf("failed to validate cluster status: %w", err)
 		}
 		tracker.Complete()
 
@@ -161,7 +161,9 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
-	timeout := time.After(10 * time.Minute)
+	// A fully cold Docker engine must pull the complete addon image set,
+	// which can push the initial Flux reconciliation past 10 minutes.
+	timeout := time.After(20 * time.Minute)
 
 	for {
 		select {
@@ -173,23 +175,52 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 			if ready {
 				return nil
 			}
-			// The crossplane kustomization requires Crossplane CRDs which
-			// are only available after Crossplane pods start. Allow it to
-			// remain not-ready during bootstrap; it will reconcile once
-			// Crossplane is fully running.
-			allCrossplane := true
+			// Later phases already wait on the concrete resources backed by
+			// these kustomizations, so we don't need to block here once only
+			// the crossplane/gateway follow-up reconciliations remain.
+			allDeferred := true
 			for _, p := range pending {
-				if p != "crossplane" {
-					allCrossplane = false
+				if p != "crossplane" && p != "gateway" {
+					allDeferred = false
 					break
 				}
 			}
-			if allCrossplane && len(pending) > 0 {
+			if allDeferred && len(pending) > 0 {
 				return nil
 			}
 			tracker.UpdateDetail(fmt.Sprintf("pending: %s", strings.Join(pending, ", ")))
 		case <-timeout:
 			return fmt.Errorf("timed out waiting for Flux Kustomizations")
+		}
+	}
+}
+
+func waitForHealthyStatus(ctx context.Context, timeout time.Duration) error {
+	deadlineCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	var lastErr error
+	for {
+		summary, err := gatherStatus(deadlineCtx)
+		if err != nil {
+			lastErr = err
+		} else {
+			podsHealthy := summary.TotalPods > 0 && summary.HealthyPods == summary.TotalPods
+			if summary.NodesReady && podsHealthy && summary.FluxReady && summary.XPlaneReady && summary.GatewayReady {
+				return nil
+			}
+		}
+
+		select {
+		case <-deadlineCtx.Done():
+			if lastErr != nil {
+				return lastErr
+			}
+			return fmt.Errorf("timed out waiting for shoulders status to report all systems healthy")
+		case <-ticker.C:
 		}
 	}
 }

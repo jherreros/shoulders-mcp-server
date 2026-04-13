@@ -1,10 +1,8 @@
 package bootstrap
 
 import (
-	"bytes"
 	"context"
 	"fmt"
-	"io"
 	"strings"
 
 	"github.com/containerd/errdefs"
@@ -126,46 +124,4 @@ func startContainer(ctx context.Context, name string) error {
 		return fmt.Errorf("start container %q: %w", name, err)
 	}
 	return nil
-}
-
-// containerExec runs a command inside a running container and returns the
-// combined stdout+stderr output.
-func containerExec(ctx context.Context, containerName string, cmd []string) ([]byte, error) {
-	cli, err := dockerClient()
-	if err != nil {
-		return nil, fmt.Errorf("create docker client: %w", err)
-	}
-	defer cli.Close() //nolint:errcheck // best-effort cleanup
-
-	execCfg := container.ExecOptions{
-		Cmd:          cmd,
-		AttachStdout: true,
-		AttachStderr: true,
-	}
-
-	resp, err := cli.ContainerExecCreate(ctx, containerName, execCfg)
-	if err != nil {
-		return nil, fmt.Errorf("create exec on %s: %w", containerName, err)
-	}
-
-	attach, err := cli.ContainerExecAttach(ctx, resp.ID, container.ExecAttachOptions{})
-	if err != nil {
-		return nil, fmt.Errorf("attach exec on %s: %w", containerName, err)
-	}
-	defer attach.Close()
-
-	var buf bytes.Buffer
-	if _, err := io.Copy(&buf, attach.Reader); err != nil {
-		return nil, fmt.Errorf("read exec output from %s: %w", containerName, err)
-	}
-
-	inspect, err := cli.ContainerExecInspect(ctx, resp.ID)
-	if err != nil {
-		return buf.Bytes(), fmt.Errorf("inspect exec on %s: %w", containerName, err)
-	}
-	if inspect.ExitCode != 0 {
-		return buf.Bytes(), fmt.Errorf("exec on %s exited with code %d", containerName, inspect.ExitCode)
-	}
-
-	return buf.Bytes(), nil
 }

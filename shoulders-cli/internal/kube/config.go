@@ -15,7 +15,15 @@ func NewRestConfig(kubeconfig string) (*rest.Config, error) {
 	}
 	overrides := &clientcmd.ConfigOverrides{}
 	clientConfig := clientcmd.NewNonInteractiveDeferredLoadingClientConfig(rules, overrides)
-	return clientConfig.ClientConfig()
+	config, err := clientConfig.ClientConfig()
+	if err != nil {
+		return nil, err
+	}
+	// Raise the client rate limits from the defaults (5 QPS / 10 burst)
+	// which are too low for the burst of API calls during bootstrap.
+	config.QPS = 50
+	config.Burst = 100
+	return config, nil
 }
 
 func SwitchContext(kubeconfigPath, contextName string) error {

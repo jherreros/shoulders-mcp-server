@@ -28,12 +28,15 @@ const (
 	// controlPlanePrefix is the Docker container name prefix for vind
 	// control-plane containers (e.g. "vcluster.cp.shoulders").
 	controlPlanePrefix = "vcluster.cp."
+
+	clusterAuthConfigName = "authentication-config.yaml"
 )
 
 // EnsureVindCluster creates a vind (vCluster-in-Docker) cluster if it does
-// not already exist. vindConfig is an optional vCluster values YAML that is
-// passed to CreateDocker via --values.
-func EnsureVindCluster(ctx context.Context, name string, vindConfig []byte) (err error) {
+// not already exist. vindConfig is an optional base vCluster values YAML and
+// authConfig is an optional API server auth config that is mounted into the
+// control-plane container before bootstrap.
+func EnsureVindCluster(ctx context.Context, name string, vindConfig, authConfig []byte) (err error) {
 	exists, err := containerExists(ctx, controlPlanePrefix+name)
 	if err != nil {
 		return fmt.Errorf("check if cluster already exists: %w", err)
@@ -63,7 +66,7 @@ func EnsureVindCluster(ctx context.Context, name string, vindConfig []byte) (err
 		UpdateCurrent: true,
 	}
 
-	if len(vindConfig) > 0 {
+	if len(vindConfig) > 0 || len(authConfig) > 0 {
 		tmpDir, tErr := os.MkdirTemp("", "shoulders-vind-*")
 		if tErr != nil {
 			return fmt.Errorf("create temp dir: %w", tErr)
@@ -74,14 +77,71 @@ func EnsureVindCluster(ctx context.Context, name string, vindConfig []byte) (err
 			}
 		}()
 
-		valuesPath := tmpDir + "/values.yaml"
-		if wErr := os.WriteFile(valuesPath, vindConfig, 0o644); wErr != nil {
-			return fmt.Errorf("write vind values: %w", wErr)
+		valuesPaths := make([]string, 0, 2)
+		if len(vindConfig) > 0 {
+			valuesPath := filepath.Join(tmpDir, "values.yaml")
+			if wErr := os.WriteFile(valuesPath, vindConfig, 0o644); wErr != nil {
+				return fmt.Errorf("write vind values: %w", wErr)
+			}
+			valuesPaths = append(valuesPaths, valuesPath)
 		}
-		options.Values = []string{valuesPath}
+
+		if len(authConfig) > 0 {
+			authConfigHostPath, pErr := writeClusterAuthConfig(configPath, name, authConfig)
+			if pErr != nil {
+				return pErr
+			}
+
+			overlayPath := filepath.Join(tmpDir, "shoulders-values.yaml")
+			overlay := renderShouldersVindOverlay(authConfigHostPath)
+			if wErr := os.WriteFile(overlayPath, []byte(overlay), 0o644); wErr != nil {
+				return fmt.Errorf("write shoulders vind values: %w", wErr)
+			}
+			valuesPaths = append(valuesPaths, overlayPath)
+		}
+
+		options.Values = valuesPaths
 	}
 
 	return vcli.CreateDocker(ctx, options, globalFlags, name, logger)
+}
+
+func writeClusterAuthConfig(configPath, clusterName string, authConfig []byte) (string, error) {
+	authConfigHostPath := clusterAuthConfigHostPath(configPath, clusterName)
+	if err := os.MkdirAll(filepath.Dir(authConfigHostPath), 0o755); err != nil {
+		return "", fmt.Errorf("create auth config dir: %w", err)
+	}
+	if err := os.WriteFile(authConfigHostPath, authConfig, 0o644); err != nil {
+		return "", fmt.Errorf("write auth config: %w", err)
+	}
+
+	return authConfigHostPath, nil
+}
+
+func clusterAuthConfigHostPath(configPath, clusterName string) string {
+	return filepath.Join(filepath.Dir(configPath), "docker", "vclusters", clusterName, clusterAuthConfigName)
+}
+
+func renderShouldersVindOverlay(authConfigHostPath string) string {
+	hosts := append(strings.Fields(dexInternalHosts), dexPublicHost)
+
+	var b strings.Builder
+	b.WriteString("controlPlane:\n")
+	b.WriteString("  distro:\n")
+	b.WriteString("    k8s:\n")
+	b.WriteString("      apiServer:\n")
+	b.WriteString("        extraArgs:\n")
+	fmt.Fprintf(&b, "          - %q\n", "--authentication-config="+authConfigPath)
+	b.WriteString("experimental:\n")
+	b.WriteString("  docker:\n")
+	b.WriteString("    args:\n")
+	for _, host := range hosts {
+		fmt.Fprintf(&b, "      - %q\n", "--add-host="+host+":"+defaultDexServiceIP)
+	}
+	b.WriteString("    volumes:\n")
+	fmt.Fprintf(&b, "      - %q\n", authConfigHostPath+":"+authConfigPath+":ro")
+
+	return b.String()
 }
 
 // DeleteVindCluster removes a vind cluster and its associated resources.
@@ -110,6 +170,7 @@ func DeleteVindCluster(ctx context.Context, name string) error {
 			_ = removeVolume(ctx, c+suffix)
 		}
 	}
+	_ = os.Remove(clusterAuthConfigHostPath(globalFlags.Config, name))
 	return nil
 }
 

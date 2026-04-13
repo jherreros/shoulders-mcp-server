@@ -14,6 +14,8 @@ import (
 	"github.com/pterm/pterm"
 	"github.com/spf13/cobra"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
+	apimeta "k8s.io/apimachinery/pkg/api/meta"
 	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 )
@@ -67,10 +69,10 @@ func gatherStatus(ctx context.Context) (statusSummary, error) {
 
 	// 1. Cluster Info
 	versionInfo, err := clientset.Discovery().ServerVersion()
-	k8sVersion := "unknown"
-	if err == nil {
-		k8sVersion = versionInfo.GitVersion
+	if err != nil {
+		return statusSummary{}, err
 	}
+	k8sVersion := versionInfo.GitVersion
 
 	// 2. Nodes
 	nodes, err := clientset.CoreV1().Nodes().List(ctx, v1.ListOptions{})
@@ -100,14 +102,14 @@ func gatherStatus(ctx context.Context) (statusSummary, error) {
 
 	// 5. Pods
 	podList, err := clientset.CoreV1().Pods("").List(ctx, v1.ListOptions{})
-	totalPods := 0
+	if err != nil {
+		return statusSummary{}, err
+	}
+	totalPods := len(podList.Items)
 	healthyPods := 0
-	if err == nil {
-		totalPods = len(podList.Items)
-		for _, pod := range podList.Items {
-			if isPodHealthy(pod) {
-				healthyPods++
-			}
+	for _, pod := range podList.Items {
+		if isPodHealthy(pod) {
+			healthyPods++
 		}
 	}
 
@@ -117,6 +119,9 @@ func gatherStatus(ctx context.Context) (statusSummary, error) {
 	gwProgrammed := false
 	gvrGW := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
 	gwList, err := dynamicClient.Resource(gvrGW).Namespace("kube-system").List(ctx, v1.ListOptions{})
+	if err != nil && !apierrors.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
+		return statusSummary{}, err
+	}
 	if err == nil && len(gwList.Items) > 0 {
 		gw := gwList.Items[0]
 		if status, ok := gw.Object["status"].(map[string]interface{}); ok {
@@ -185,10 +190,11 @@ func statusWaitLoop(ctx context.Context, format output.Format) error {
 		if err != nil {
 			return err
 		}
+		podsHealthy := summary.TotalPods > 0 && summary.HealthyPods == summary.TotalPods
 
 		area.Update(renderStatusTUI(summary))
 
-		if summary.NodesReady && summary.FluxReady && summary.XPlaneReady && summary.GatewayReady {
+		if summary.NodesReady && podsHealthy && summary.FluxReady && summary.XPlaneReady && summary.GatewayReady {
 			return nil
 		}
 
@@ -234,7 +240,7 @@ func renderStatusTUI(s statusSummary) string {
 	b.WriteString(tui.StatusLine("Crossplane", s.XPlaneReady, formatDetail(s.XPlaneBroken)) + "\n")
 	b.WriteString(tui.StatusLine("Gateway", s.GatewayReady, s.GatewayAddr) + "\n")
 
-	if s.NodesReady && s.FluxReady && s.XPlaneReady && s.GatewayReady {
+	if s.NodesReady && podsHealthy && s.FluxReady && s.XPlaneReady && s.GatewayReady {
 		b.WriteString("\n  " + pterm.NewStyle(pterm.FgGreen, pterm.Bold).Sprint("All systems healthy") + "\n")
 	} else {
 		b.WriteString("\n  " + pterm.NewStyle(pterm.FgYellow).Sprint("Waiting for components to become healthy...") + "\n")

@@ -5,6 +5,10 @@ controlPlane:
   distro:
     k8s:
       version: v1.35.3
+privateNodes:
+  joinNode:
+    nodeRegistration:
+      criSocket: unix:///run/containerd/containerd.sock
 deploy:
   cni:
     flannel:
