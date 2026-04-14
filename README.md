@@ -1,4 +1,10 @@
+<!-- markdownlint-disable MD013 -->
 # Shoulders
+
+[![CI](https://github.com/jherreros/shoulders/actions/workflows/test.yml/badge.svg)](https://github.com/jherreros/shoulders/actions/workflows/test.yml)
+[![Release](https://img.shields.io/github/v/release/jherreros/shoulders?label=release)](https://github.com/jherreros/shoulders/releases/latest)
+[![Go](https://img.shields.io/github/go-mod/go-version/jherreros/shoulders?filename=shoulders-cli%2Fgo.mod&label=go)](shoulders-cli/go.mod)
+[![License](https://img.shields.io/github/license/jherreros/shoulders)](LICENSE)
 
 Shoulders is a reference implementation of an Internal Developer Platform (IDP) that demonstrates how to use Crossplane to provide a self-service platform for developers to create and manage their cloud-native applications and infrastructure on Kubernetes.
 
@@ -65,6 +71,14 @@ A Headlamp plugin that renders a self-service UI for Shoulders resources inside 
 
 ### Install the CLI
 
+With Homebrew:
+
+```bash
+brew install jherreros/tap/shoulders
+```
+
+Or via the install script:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jherreros/shoulders/main/scripts/install.sh | bash
 ```
@@ -130,7 +144,7 @@ shoulders cluster use <name>            # Switch context to a cluster
 
 shoulders logs <app-name>               # Fetch logs (Loki if available, else pod logs)
 shoulders dashboard                     # Open Grafana (prefers OIDC at grafana.localhost; falls back to localhost:3000)
-shoulders headlamp                      # Open Headlamp (prefers OIDC at headlamp.localhost; falls back to localhost:4466)
+shoulders portal                        # Open Headlamp portal (prefers OIDC at headlamp.localhost; falls back to localhost:4466)
 shoulders reporter                      # Open Policy Reporter UI (prefers reporter.localhost; falls back to localhost:8082)
 ```
 
@@ -313,7 +327,7 @@ kubectl get secret -n observability kube-prometheus-stack-grafana -o jsonpath='{
 The developer portal is delivered as the **Shoulders Headlamp plugin** (`shoulders-portal-plugin/`). When the platform is installed, Headlamp loads the plugin through its `pluginsManager` and exposes it in the sidebar under **Shoulders** at `/shoulders`.
 
 ```bash
-shoulders headlamp
+shoulders portal
 ```
 
 This command first tries `http://headlamp.localhost` (OIDC via Dex) and opens it in your browser. If that host is not reachable, it falls back to local port-forward mode at `http://localhost:4466`.
@@ -389,12 +403,35 @@ shoulders/
     └── install.sh                 # CLI installer script
 ```
 
+## AI Agent Skill
+
+Shoulders ships with an agent skill that teaches AI assistants how to deploy and manage applications on the platform.
+
+Install globally (works across all workspaces):
+
+```bash
+shoulders skill install
+```
+
+Or install into the current workspace:
+
+```bash
+shoulders skill install --workspace
+```
+
+Once installed, agents can invoke the skill via `/shoulders` in VS Code Copilot chat.
+
+## Sub-projects
+
+| Project | Description |
+|---------|-------------|
+| [shoulders-cli](shoulders-cli/) | Go CLI for cluster bootstrap, workspace and app management |
+| [shoulders-mcp-server](shoulders-mcp-server/) | MCP server for AI assistants and MCP-compatible clients |
+| [shoulders-portal-plugin](shoulders-portal-plugin/) | Headlamp plugin for a self-service developer portal |
+
 ## Contributing
 
-1. Fork the repository.
-2. Create a feature branch.
-3. Test your changes with a fresh cluster (`shoulders down && shoulders up`).
-4. Submit a pull request.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development setup, build instructions, and guidelines.
 
 ## Cleanup
 

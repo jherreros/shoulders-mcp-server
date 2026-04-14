@@ -38,6 +38,20 @@ release:
     owner: jherreros
     name: shoulders
 
+brews:
+  - repository:
+      owner: jherreros
+      name: homebrew-tap
+      token: '{{ .Env.HOMEBREW_TAP_TOKEN }}'
+    folder: Formula
+    homepage: https://github.com/jherreros/shoulders
+    description: CLI for the Shoulders Internal Developer Platform
+    license: MIT
+    install: |
+      bin.install "shoulders"
+    test: |
+      system "#{bin}/shoulders", "--version"
+
 changelog:
   sort: asc
   filters:

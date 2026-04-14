@@ -21,6 +21,7 @@ var skipClusterCheck = map[string]bool{
 	"cluster": true,
 	"start":   true,
 	"stop":    true,
+	"skill":   true,
 	"help":    true,
 	"version": true,
 }
@@ -76,6 +77,7 @@ func init() {
 	rootCmd.AddCommand(reporterCmd)
 	rootCmd.AddCommand(startCmd)
 	rootCmd.AddCommand(stopCmd)
+	rootCmd.AddCommand(skillCmd)
 }
 
 func initConfig() {

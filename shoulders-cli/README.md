@@ -4,6 +4,14 @@ Developer CLI for the Shoulders Internal Developer Platform. The bootstrap flow 
 
 ## Install
 
+With Homebrew:
+
+```bash
+brew install jherreros/tap/shoulders
+```
+
+Or via the install script:
+
 ```bash
 curl -fsSL https://raw.githubusercontent.com/jherreros/shoulders/main/scripts/install.sh | bash
 ```
@@ -62,6 +70,8 @@ go build -o shoulders
 ./shoulders dashboard                 # Opens grafana.localhost (falls back to localhost:3000)
 ./shoulders portal                    # Opens Headlamp portal (falls back to localhost:4466)
 ./shoulders reporter                  # Opens Policy Reporter UI (falls back to localhost:8082)
+./shoulders skill install             # Install the Shoulders agent skill for AI assistants
+./shoulders skill install --workspace # Install into the current project instead of globally
 ```
 
 `*.localhost` access requires host port `80` to be available when the cluster is created. If you changed these settings, recreate the cluster:

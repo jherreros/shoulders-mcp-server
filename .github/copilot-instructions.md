@@ -4,6 +4,7 @@
 - The repo is a 3-layer platform: `1-cluster/` creates a local vind (vCluster-in-Docker) cluster, `2-addons/` installs platform services via FluxCD, and `3-user-space/` contains team-facing examples.
 - Flux kustomizations in `2-addons/flux/kustomizations.yaml` enforce install order: helm repositories → namespaces → helm releases → crossplane → gateway.
 - Crossplane defines the IDP abstractions in `2-addons/manifests/crossplane/definitions/` (XRDs) and implements them with compositions in `2-addons/manifests/crossplane/compositions/`.
+- The `shoulders` CLI (`shoulders-cli/`) is available via `brew install jherreros/tap/shoulders` or the install script. An agent skill (`.github/skills/shoulders/`) provides deployment guidance for AI assistants.
 
 ## Crossplane composition patterns
 - Compositions use **Pipeline** mode and functions. Patch/transform is used for static resource wiring (`function-patch-and-transform`), while dynamic resource generation uses `function-go-templating` (see `state-store-composition.yaml`).
