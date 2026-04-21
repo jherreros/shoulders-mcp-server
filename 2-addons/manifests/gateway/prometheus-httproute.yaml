@@ -8,7 +8,7 @@ spec:
     - name: cilium-gateway
       namespace: kube-system
   hostnames:
-    - prometheus.localhost
+    - ${SHOULDERS_PROMETHEUS_HOST}
   rules:
     - backendRefs:
         - name: kube-prometheus-stack-prometheus

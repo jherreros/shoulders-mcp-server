@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/bootstrap"
+	"github.com/jherreros/shoulders/shoulders-cli/internal/config"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/flux"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/manifests"
@@ -19,61 +20,92 @@ var (
 	upVerbose     bool
 )
 
-var upPhases = []string{
-	"Create vind cluster",
-	"Install Cilium CNI",
-	"Install Flux CD",
-	"Reconcile Flux kustomizations",
-	"Wait for platform deployments",
-	"Configure gateway routes",
-	"Validate cluster status",
-}
-
 var upCmd = &cobra.Command{
 	Use:   "up",
 	Short: "Create the local cluster and install platform addons",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		tracker := tui.NewPhaseTracker(upPhases, upVerbose)
+		clusterName := configuredClusterName(cmd, "name", upClusterName)
+		publicConfig := bootstrap.PublicDomainConfig{
+			DexHost:          currentConfig.DexHost(),
+			GrafanaHost:      currentConfig.GrafanaHost(),
+			HeadlampHost:     currentConfig.HeadlampHost(),
+			ReporterHost:     currentConfig.ReporterHost(),
+			PrometheusHost:   currentConfig.PrometheusHost(),
+			AlertmanagerHost: currentConfig.AlertmanagerHost(),
+			HubbleHost:       currentConfig.HubbleHost(),
+		}
+		var err error
+		if currentConfig.HasCustomDomain() {
+			publicConfig.TLS, err = bootstrap.GenerateDexTLSMaterial(publicConfig.DexHost)
+		} else {
+			publicConfig.TLS, err = bootstrap.DefaultDexTLSMaterial()
+		}
+		if err != nil {
+			return fmt.Errorf("prepare dex tls material: %w", err)
+		}
+
+		authConfig := manifests.AuthenticationConfig
+		if currentConfig.HasCustomDomain() {
+			authConfig = bootstrap.RenderAuthenticationConfig(publicConfig.DexHost, publicConfig.TLS.CAPEM)
+		}
+
+		tracker := tui.NewPhaseTracker(upPhases(), upVerbose)
 		defer tracker.Stop()
 
-		// Phase 1: vind cluster
-		tracker.Start(verboseDetail("creating vind cluster %q using embedded config", upClusterName))
-		if err := bootstrap.EnsureVindCluster(cmd.Context(), upClusterName, manifests.VindConfig, manifests.AuthenticationConfig); err != nil {
-			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to create vind cluster: %w", err)
+		// Phase 1: cluster preparation
+		if currentConfig.Provider() == config.ProviderExisting {
+			tracker.Start(verboseDetail("connecting to existing cluster context %q", currentConfig.Cluster.Context))
+			if err := bootstrap.EnsureExistingCluster(cmd.Context(), kubeconfig); err != nil {
+				tracker.Fail(err.Error())
+				return fmt.Errorf("failed to connect to existing cluster: %w", err)
+			}
+		} else {
+			tracker.Start(verboseDetail("creating vind cluster %q using embedded config", clusterName))
+			if err := bootstrap.EnsureVindCluster(cmd.Context(), clusterName, manifests.VindConfig, authConfig, publicConfig.DexHost); err != nil {
+				tracker.Fail(err.Error())
+				return fmt.Errorf("failed to create vind cluster: %w", err)
+			}
 		}
 		tracker.Complete()
 
-		// Phase 2: Cilium
-		tracker.Start(verboseDetail("installing Gateway API CRDs and Cilium Helm chart with gatewayAPI"))
+		// Phase 2: networking prerequisites
+		detail := verboseDetail("installing Gateway API CRDs")
+		if currentConfig.CiliumEnabled() {
+			detail = verboseDetail("installing Gateway API CRDs and Cilium Helm chart with gatewayAPI")
+		}
+		tracker.Start(detail)
 		// Install Gateway API CRDs before Cilium so the operator can
 		// register the GatewayClass controller on startup.
 		if err := kube.ApplyManifest(cmd.Context(), kubeconfig, manifests.GatewayAPICRDs, ""); err != nil {
 			tracker.Fail(err.Error())
 			return fmt.Errorf("failed to install gateway api crds: %w", err)
 		}
-		if err := bootstrap.EnsureCilium(kubeconfig); err != nil {
-			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to install cilium: %w", err)
-		}
-		if err := bootstrap.RestartStuckPods(kubeconfig); err != nil {
-			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to restart stuck pods: %w", err)
+		if currentConfig.CiliumEnabled() {
+			if err := bootstrap.EnsureCilium(kubeconfig, currentConfig.CiliumVersion()); err != nil {
+				tracker.Fail(err.Error())
+				return fmt.Errorf("failed to install cilium: %w", err)
+			}
+			if err := bootstrap.RestartStuckPods(kubeconfig); err != nil {
+				tracker.Fail(err.Error())
+				return fmt.Errorf("failed to restart stuck pods: %w", err)
+			}
 		}
 		tracker.Complete()
 
 		// Phase 3: Flux install
 		tracker.Start(verboseDetail("downloading Flux install manifest and applying GitRepository + Kustomizations"))
 		if err := bootstrap.EnsureFlux(context.Background(), kubeconfig,
-			manifests.FluxGitRepository,
-			manifests.FluxKustomizations,
+			currentConfig.FluxRepositoryURL(),
+			currentConfig.FluxRepositoryBranch(),
+			currentConfig.FluxPathPrefix(),
+			publicConfig,
 		); err != nil {
 			tracker.Fail(err.Error())
 			return fmt.Errorf("failed to install flux: %w", err)
 		}
-		// Suspend the Flux-managed Cilium HelmRelease so the helm-controller
-		// does not override the CLI-managed Cilium installation with values
-		// from the Git repo that may be incompatible with vind.
+		// Always suspend the Flux-managed Cilium HelmRelease. When Cilium is
+		// enabled, the CLI manages the installation directly; when it is
+		// disabled, this keeps Flux from installing it implicitly.
 		if err := bootstrap.SuspendCiliumHelmRelease(kubeconfig); err != nil {
 			tracker.Fail(err.Error())
 			return fmt.Errorf("failed to suspend cilium helmrelease: %w", err)
@@ -89,9 +121,11 @@ var upCmd = &cobra.Command{
 		// Delete any pods stuck in ContainerCreating from the initial
 		// Flux reconciliation. The burst of pod creation can overwhelm
 		// Cilium's endpoint API, leaving pods in exponential backoff.
-		if err := bootstrap.RestartStuckPods(kubeconfig); err != nil {
-			tracker.Fail(err.Error())
-			return fmt.Errorf("failed to restart stuck pods: %w", err)
+		if currentConfig.CiliumEnabled() {
+			if err := bootstrap.RestartStuckPods(kubeconfig); err != nil {
+				tracker.Fail(err.Error())
+				return fmt.Errorf("failed to restart stuck pods: %w", err)
+			}
 		}
 		tracker.Complete()
 
@@ -114,18 +148,22 @@ var upCmd = &cobra.Command{
 
 		// Phase 6: Gateway routes
 		tracker.Start(verboseDetail("resolving HTTPRoutes"))
-		routes := []struct{ ns, name string }{
-			{"dex", "dex"},
-			{"headlamp", "headlamp"},
-			{"observability", "grafana"},
-			{"policy-reporter", "policy-reporter"},
-		}
-		for _, r := range routes {
-			tracker.UpdateDetail(fmt.Sprintf("waiting for %s/%s HTTPRoute", r.ns, r.name))
-			if err := bootstrap.WaitForHTTPRouteResolved(kubeconfig, r.ns, r.name, 5*time.Minute); err != nil {
-				tracker.Fail(fmt.Sprintf("%s route not resolved", r.name))
-				return fmt.Errorf("failed waiting for %s route: %w", r.name, err)
+		if gatewayChecksRequired() {
+			routes := []struct{ ns, name string }{
+				{"dex", "dex"},
+				{"headlamp", "headlamp"},
+				{"observability", "grafana"},
+				{"policy-reporter", "policy-reporter"},
 			}
+			for _, r := range routes {
+				tracker.UpdateDetail(fmt.Sprintf("waiting for %s/%s HTTPRoute", r.ns, r.name))
+				if err := bootstrap.WaitForHTTPRouteResolved(kubeconfig, r.ns, r.name, 5*time.Minute); err != nil {
+					tracker.Fail(fmt.Sprintf("%s route not resolved", r.name))
+					return fmt.Errorf("failed waiting for %s route: %w", r.name, err)
+				}
+			}
+		} else {
+			tracker.UpdateDetail(verboseDetail("skipping HTTPRoute checks because cilium is disabled"))
 		}
 		tracker.Complete()
 
@@ -142,6 +180,26 @@ var upCmd = &cobra.Command{
 		fmt.Println()
 		return nil
 	},
+}
+
+func upPhases() []string {
+	phaseOne := "Create vind cluster"
+	if currentConfig != nil && currentConfig.Provider() == config.ProviderExisting {
+		phaseOne = "Connect to existing cluster"
+	}
+	phaseTwo := "Install Gateway API CRDs"
+	if currentConfig != nil && currentConfig.CiliumEnabled() {
+		phaseTwo = "Install Cilium CNI"
+	}
+	return []string{
+		phaseOne,
+		phaseTwo,
+		"Install Flux CD",
+		"Reconcile Flux kustomizations",
+		"Wait for platform deployments",
+		"Configure gateway routes",
+		"Validate cluster status",
+	}
 }
 
 // verboseDetail returns detail only when --verbose is set.
@@ -164,32 +222,32 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 	// A fully cold Docker engine must pull the complete addon image set,
 	// which can push the initial Flux reconciliation past 10 minutes.
 	timeout := time.After(20 * time.Minute)
+	var lastErr error
 
 	for {
 		select {
 		case <-ticker.C:
 			ready, pending, err := flux.AllKustomizationsReady(ctx, client, "flux-system")
 			if err != nil {
-				return err
+				lastErr = err
+				tracker.UpdateDetail(fmt.Sprintf("waiting for flux api: %v", err))
+				continue
 			}
+			lastErr = nil
 			if ready {
 				return nil
 			}
 			// Later phases already wait on the concrete resources backed by
 			// these kustomizations, so we don't need to block here once only
-			// the crossplane/gateway follow-up reconciliations remain.
-			allDeferred := true
-			for _, p := range pending {
-				if p != "crossplane" && p != "gateway" {
-					allDeferred = false
-					break
-				}
-			}
-			if allDeferred && len(pending) > 0 {
+			// helm-releases (stuck on health checks) and its dependents remain.
+			if onlyDeferredFluxKustomizations(pending) {
 				return nil
 			}
 			tracker.UpdateDetail(fmt.Sprintf("pending: %s", strings.Join(pending, ", ")))
 		case <-timeout:
+			if lastErr != nil {
+				return lastErr
+			}
 			return fmt.Errorf("timed out waiting for Flux Kustomizations")
 		}
 	}
@@ -226,6 +284,6 @@ func waitForHealthyStatus(ctx context.Context, timeout time.Duration) error {
 }
 
 func init() {
-	upCmd.Flags().StringVar(&upClusterName, "name", bootstrap.DefaultClusterName, "Name of the vind cluster")
+	upCmd.Flags().StringVar(&upClusterName, "name", bootstrap.DefaultClusterName, "Name of the cluster to create when provider=vind")
 	upCmd.Flags().BoolVarP(&upVerbose, "verbose", "v", false, "Show detailed progress information for each phase")
 }

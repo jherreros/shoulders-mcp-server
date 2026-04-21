@@ -1,6 +1,15 @@
 import { dump } from 'js-yaml';
 import { CreateFormState, ResourceConfig, ResourceItem } from './types';
 
+const defaultPlatformHosts = {
+	grafana: 'grafana.localhost',
+	hubble: 'hubble.localhost',
+	prometheus: 'prometheus.localhost',
+	alertmanager: 'alertmanager.localhost',
+	reporter: 'reporter.localhost',
+	dex: 'dex.127.0.0.1.sslip.io',
+} as const;
+
 function getConditionStatus(item: any, type: string): boolean | null {
 	const conditions = item?.status?.conditions;
 	if (!Array.isArray(conditions)) return null;
@@ -147,4 +156,13 @@ export function validateForm(config: ResourceConfig, form: CreateFormState) {
 
 export function manifestToYaml(manifest: object) {
 	return dump(manifest, { noRefs: true, lineWidth: 120 });
+}
+
+export function platformUIURL(name: keyof typeof defaultPlatformHosts, currentHost = '') {
+	const fallbackHost = defaultPlatformHosts[name];
+	const resolvedHost = currentHost.startsWith('headlamp.')
+		? `${name}${currentHost.slice('headlamp'.length)}`
+		: fallbackHost;
+	const scheme = name === 'dex' ? 'https' : 'http';
+	return `${scheme}://${resolvedHost}`;
 }

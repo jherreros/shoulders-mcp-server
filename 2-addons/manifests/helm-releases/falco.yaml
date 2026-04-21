@@ -5,6 +5,9 @@ metadata:
   namespace: falco
 spec:
   interval: 5m
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: observability
   chart:
     spec:
       chart: falco
@@ -18,6 +21,7 @@ spec:
       kind: modern_ebpf
     tty: true
     falco:
+      watch_config_files: false
       json_output: true
       http_output:
         enabled: false
@@ -26,7 +30,7 @@ spec:
       config:
         policyreport:
           enabled: true
-          maxEvents: 1000
+          maxEvents: 200
     metrics:
       enabled: true
     serviceMonitor:

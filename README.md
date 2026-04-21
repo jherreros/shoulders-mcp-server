@@ -97,6 +97,17 @@ This will:
 3. Bootstrap FluxCD.
 4. Deploy all platform components via GitOps and wait for reconciliation.
 
+### Deploy onto an existing cluster
+
+Generate an example config, edit it for your target kubeconfig/context, and then run `up` against that file:
+
+```bash
+shoulders init --provider existing --config ./shoulders.yaml
+shoulders --config ./shoulders.yaml up
+```
+
+When `cluster.provider: existing`, `shoulders up` installs the platform onto the selected cluster instead of creating a vind cluster.
+
 ### Verify installation
 
 ```bash
@@ -112,15 +123,58 @@ shoulders stop            # Stops Docker containers (control-plane + workers)
 shoulders start           # Resumes a previously stopped cluster
 ```
 
+`shoulders start` and `shoulders stop` are local vind-only workflows.
+
+## Configuration
+
+The CLI reads `~/.shoulders/config.yaml` by default. Use `--config <path>` to point at a different file.
+
+Generate a starter file with:
+
+```bash
+shoulders init --provider vind
+shoulders init --provider existing --config ./shoulders.yaml
+```
+
+Current config fields:
+
+```yaml
+current_workspace: ""
+
+cluster:
+  provider: vind          # vind | existing
+  name: shoulders
+  kubeconfig: ""
+  context: ""
+
+platform:
+  cilium:
+    enabled: true
+    version: "1.19.2"
+  flux:
+    gitRepository:
+      url: "https://github.com/jherreros/shoulders.git"
+      branch: "main"
+    pathPrefix: "."
+```
+
+Notes:
+- `provider: vind` preserves the current default behavior.
+- `provider: existing` skips cluster creation and targets the configured kube context.
+- Cilium defaults to enabled for `vind` and disabled for `existing`.
+- `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let you point Flux at a different repository, branch, or subdirectory, as long as that source contains the expected Shoulders manifests under the configured path.
+- On `provider: existing`, `shoulders down` removes the Flux-managed Shoulders platform from the current cluster. If `platform.cilium.enabled: true`, it also uninstalls the `cilium` Helm release from `kube-system`.
+
 ## CLI Reference
 
 The `shoulders` CLI supports the following commands:
 
 ```
+shoulders init                          # Write an example config file
 shoulders up                            # Create cluster and install platform
-shoulders down                          # Delete the vind cluster
-shoulders start                         # Start a previously stopped cluster
-shoulders stop                          # Stop the cluster without deleting it
+shoulders down                          # Delete the vind cluster or uninstall Shoulders from an existing cluster
+shoulders start                         # Start a previously stopped vind cluster
+shoulders stop                          # Stop the local vind cluster without deleting it
 shoulders status                        # Cluster and platform health (nodes, pods, Flux, Crossplane, Gateway)
 
 shoulders workspace create <name>       # Create a Workspace
@@ -139,16 +193,16 @@ shoulders infra add-stream <name>       # Create an EventStream (--topics, --par
 shoulders infra list                    # List StateStores and EventStreams
 shoulders infra delete <name>           # Delete an infrastructure resource
 
-shoulders cluster list                  # List local vind clusters
-shoulders cluster use <name>            # Switch context to a cluster
+shoulders cluster list                  # List local vind clusters or kube contexts
+shoulders cluster use <name>            # Switch context to a cluster or kube context
 
 shoulders logs <app-name>               # Fetch logs (Loki if available, else pod logs)
-shoulders dashboard                     # Open Grafana (prefers OIDC at grafana.localhost; falls back to localhost:3000)
-shoulders portal                        # Open Headlamp portal (prefers OIDC at headlamp.localhost; falls back to localhost:4466)
-shoulders reporter                      # Open Policy Reporter UI (prefers reporter.localhost; falls back to localhost:8082)
+shoulders dashboard                     # Open Grafana (prefers the configured gateway host; defaults to grafana.localhost)
+shoulders portal                        # Open Headlamp portal (prefers the configured gateway host; defaults to headlamp.localhost)
+shoulders reporter                      # Open Policy Reporter UI (prefers the configured gateway host; defaults to reporter.localhost)
 ```
 
-Global flags: `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
+Global flags: `--config`, `--kubeconfig`, `--output table|json|yaml`. Most namespace-scoped commands accept `-n <namespace>` or use the active workspace.
 
 ## Platform Abstractions
 
@@ -273,6 +327,8 @@ Shoulders comes with a pre-configured observability stack:
 - **[Tempo](https://grafana.com/oss/tempo/)** — Distributed tracing.
 - **[Grafana Alloy](https://grafana.com/oss/alloy/)** — Unified collector for logs, metrics, and traces.
 
+Local installs use a low-footprint profile for observability and reporting: Prometheus retention is capped, Loki and Tempo keep data on ephemeral storage, and scanner/report history is trimmed to keep Colima disk usage under control.
+
 ## Security & Compliance
 
 Shoulders ships with a security and compliance stack that integrates with both Policy Reporter and Grafana:
@@ -293,7 +349,7 @@ shoulders reporter
 
 Shoulders ships with **Dex** as the OIDC identity provider. Grafana and Headlamp are configured to authenticate via Dex.
 
-Dex is exposed over HTTPS at `https://dex.127.0.0.1.sslip.io`. The repository includes a development CA for that local issuer, so browsers and other host-side tooling need to trust the certificate embedded in `1-cluster/authentication-config.yaml` or visit Dex once and accept the warning during local development.
+Dex is exposed over HTTPS at `https://dex.127.0.0.1.sslip.io` by default, or at `https://dex.<platform.domain>` when you set `platform.domain` in the CLI config. The default local issuer uses the repository's development CA from `1-cluster/authentication-config.yaml`; custom domains use a CLI-generated development certificate, so browsers and other host-side tooling may need to accept the warning for that hostname.
 
 Default sample users:
 
@@ -307,7 +363,7 @@ Default sample users:
 shoulders dashboard
 ```
 
-This command first tries `http://grafana.localhost` (OIDC via Dex) and opens it in your browser. If that host is not reachable, it falls back to local port-forward mode at `http://localhost:3000` and prints Grafana admin credentials.
+This command first tries the configured Grafana gateway host (OIDC via Dex), which defaults to `http://grafana.localhost`, and opens it in your browser. If that host is not reachable, it falls back to local port-forward mode at `http://localhost:3000` and prints Grafana admin credentials.
 
 If you changed cluster networking settings, recreate the cluster for host-port mappings to take effect:
 
@@ -330,7 +386,7 @@ The developer portal is delivered as the **Shoulders Headlamp plugin** (`shoulde
 shoulders portal
 ```
 
-This command first tries `http://headlamp.localhost` (OIDC via Dex) and opens it in your browser. If that host is not reachable, it falls back to local port-forward mode at `http://localhost:4466`.
+This command first tries the configured Headlamp gateway host (OIDC via Dex), which defaults to `http://headlamp.localhost`, and opens it in your browser. If that host is not reachable, it falls back to local port-forward mode at `http://localhost:4466`.
 
 ### Local plugin development
 

@@ -5,6 +5,9 @@ metadata:
   namespace: observability
 spec:
   interval: 5m
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: observability
   chart:
     spec:
       chart: alloy

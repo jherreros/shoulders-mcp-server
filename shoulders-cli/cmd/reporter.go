@@ -14,9 +14,10 @@ var reporterCmd = &cobra.Command{
 	Use:   "reporter",
 	Short: "Open the Policy Reporter dashboard",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		const reporterURL = "http://reporter.localhost"
+		reporterURL := currentConfig.ReporterURL()
+		reporterHost := currentConfig.ReporterHost()
 
-		if isHostPortReachable("reporter.localhost", "80", 1500*time.Millisecond) {
+		if isHostPortReachable(reporterHost, "80", 1500*time.Millisecond) {
 			cmd.Printf("Opening Policy Reporter at %s\n", reporterURL)
 			if err := openBrowser(reporterURL); err == nil {
 				return nil

@@ -3,37 +3,46 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 
-	"github.com/spf13/viper"
+	"sigs.k8s.io/yaml"
 )
 
-type Config struct {
-	CurrentWorkspace string `mapstructure:"current_workspace" yaml:"current_workspace" json:"current_workspace"`
-}
-
-func DefaultConfig() *Config {
-	return &Config{}
-}
-
-func Load() (*Config, error) {
-	cfg := DefaultConfig()
-	configPath, err := Path()
+func Load(pathOverride ...string) (*Config, error) {
+	configPath, err := Path(pathOverride...)
 	if err != nil {
 		return nil, err
 	}
 
-	viper.SetConfigFile(configPath)
-	if err := viper.ReadInConfig(); err == nil {
-		if err := viper.Unmarshal(cfg); err != nil {
+	cfg := &Config{}
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			cfg.ApplyDefaults()
+			return cfg, cfg.Validate()
+		}
+		return nil, err
+	}
+	if len(data) > 0 {
+		if err := yaml.Unmarshal(data, cfg); err != nil {
 			return nil, err
 		}
+	}
+	cfg.ApplyDefaults()
+	if err := cfg.Validate(); err != nil {
+		return nil, err
 	}
 	return cfg, nil
 }
 
-func Save(cfg *Config) error {
-	configPath, err := Path()
+func Save(cfg *Config, pathOverride ...string) error {
+	configPath, err := Path(pathOverride...)
 	if err != nil {
+		return err
+	}
+	clone := *cfg
+	clone.ApplyDefaults()
+	if err := clone.Validate(); err != nil {
 		return err
 	}
 
@@ -41,15 +50,37 @@ func Save(cfg *Config) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	viper.SetConfigFile(configPath)
-	viper.Set("current_workspace", cfg.CurrentWorkspace)
-	return viper.WriteConfigAs(configPath)
+	content, err := yaml.Marshal(&clone)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(configPath, content, 0o644)
 }
 
-func Path() (string, error) {
+func Path(pathOverride ...string) (string, error) {
+	if len(pathOverride) > 0 && pathOverride[0] != "" {
+		return expandPath(pathOverride[0])
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return "", err
 	}
 	return filepath.Join(home, ".shoulders", "config.yaml"), nil
+}
+
+func expandPath(path string) (string, error) {
+	if path == "" {
+		return Path()
+	}
+	if path == "~" || strings.HasPrefix(path, "~/") {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return "", err
+		}
+		if path == "~" {
+			return home, nil
+		}
+		path = filepath.Join(home, strings.TrimPrefix(path, "~/"))
+	}
+	return filepath.Clean(path), nil
 }

@@ -28,7 +28,7 @@ import {
 } from '@mui/material';
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { fetchResourceList } from '../api';
-import { formatTimestamp } from '../portalUtils';
+import { formatTimestamp, platformUIURL } from '../portalUtils';
 import { resourceConfigs } from '../resourceConfigs';
 import { ResourceItem } from '../types';
 import { CreateResourceDialog } from './CreateResourceDialog';
@@ -58,15 +58,6 @@ function getStatusColor(value: boolean | null): 'success' | 'error' | 'default' 
 	return 'default';
 }
 
-const platformUIs = [
-	{ label: 'Grafana', description: 'Dashboards, metrics, logs, and traces.', url: 'http://grafana.localhost' },
-	{ label: 'Hubble', description: 'Network flow visibility powered by Cilium.', url: 'http://hubble.localhost' },
-	{ label: 'Prometheus', description: 'Metrics querying and alerting rules.', url: 'http://prometheus.localhost' },
-	{ label: 'Alertmanager', description: 'Alert routing and silencing.', url: 'http://alertmanager.localhost' },
-	{ label: 'Policy Reporter', description: 'Kyverno and Trivy policy results.', url: 'http://reporter.localhost' },
-	{ label: 'Dex', description: 'OpenID Connect identity provider.', url: 'https://dex.127.0.0.1.sslip.io' },
-];
-
 function matchesWorkspaceFilter(item: ResourceItem, resourceId: string, selectedWorkspaces: string[]) {
 	if (selectedWorkspaces.length === 0) return true;
 	if (resourceId === 'workspaces') {
@@ -84,6 +75,17 @@ export function ShouldersPortal() {
 	const [selectedWorkspaces, setSelectedWorkspaces] = useState<string[]>([]);
 	const [createOpen, setCreateOpen] = useState(false);
 	const [selectedResource, setSelectedResource] = useState<ResourceItem | null>(null);
+	const platformUIs = useMemo(() => {
+		const currentHost = typeof window === 'undefined' ? '' : window.location.hostname;
+		return [
+			{ label: 'Grafana', description: 'Dashboards, metrics, logs, and traces.', url: platformUIURL('grafana', currentHost) },
+			{ label: 'Hubble', description: 'Network flow visibility powered by Cilium.', url: platformUIURL('hubble', currentHost) },
+			{ label: 'Prometheus', description: 'Metrics querying and alerting rules.', url: platformUIURL('prometheus', currentHost) },
+			{ label: 'Alertmanager', description: 'Alert routing and silencing.', url: platformUIURL('alertmanager', currentHost) },
+			{ label: 'Policy Reporter', description: 'Kyverno and Trivy policy results.', url: platformUIURL('reporter', currentHost) },
+			{ label: 'Dex', description: 'OpenID Connect identity provider.', url: platformUIURL('dex', currentHost) },
+		];
+	}, []);
 
 	const refresh = useCallback(async () => {
 		setLoading(true);

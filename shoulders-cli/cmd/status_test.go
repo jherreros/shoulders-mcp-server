@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	corev1 "k8s.io/api/core/v1"
+	v1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 )
 
 func TestIsPodHealthy(t *testing.T) {
@@ -78,6 +79,46 @@ func TestIsPodHealthy(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			if got := isPodHealthy(tt.pod); got != tt.want {
 				t.Errorf("isPodHealthy() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}
+
+func TestShouldIgnorePodForHealth(t *testing.T) {
+	tests := []struct {
+		name string
+		pod  corev1.Pod
+		want bool
+	}{
+		{
+			name: "JobOwnedPod",
+			pod: corev1.Pod{
+				ObjectMeta: v1.ObjectMeta{
+					OwnerReferences: []v1.OwnerReference{{Kind: "Job"}},
+				},
+			},
+			want: true,
+		},
+		{
+			name: "DeploymentPod",
+			pod: corev1.Pod{
+				ObjectMeta: v1.ObjectMeta{
+					OwnerReferences: []v1.OwnerReference{{Kind: "ReplicaSet"}},
+				},
+			},
+			want: false,
+		},
+		{
+			name: "StandalonePod",
+			pod:  corev1.Pod{},
+			want: false,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := shouldIgnorePodForHealth(tt.pod); got != tt.want {
+				t.Errorf("shouldIgnorePodForHealth() = %v, want %v", got, tt.want)
 			}
 		})
 	}

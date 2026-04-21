@@ -5,6 +5,9 @@ metadata:
   namespace: observability
 spec:
   interval: 5m
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: observability
   chart:
     spec:
       chart: tempo
@@ -24,11 +27,9 @@ spec:
           wal:
             path: /var/tempo/wal
       metricsGenerator:
-        enabled: true
-        remoteWriteUrl: "http://kube-prometheus-stack-prometheus.observability:9090/api/v1/write"
+        enabled: false
     persistence:
-      enabled: true
-      size: 1Gi
+      enabled: false
     securityContext:
       fsGroup: 10001
     serviceMonitor:

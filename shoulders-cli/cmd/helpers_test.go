@@ -62,3 +62,48 @@ func TestCurrentNamespaceMissing(t *testing.T) {
 		t.Fatalf("expected error when namespace missing")
 	}
 }
+
+func TestGatewayChecksRequiredDefaultsToTrue(t *testing.T) {
+	originalConfig := currentConfig
+	defer func() {
+		currentConfig = originalConfig
+	}()
+
+	currentConfig = nil
+	if !gatewayChecksRequired() {
+		t.Fatalf("expected gateway checks to be required by default")
+	}
+}
+
+func TestGatewayChecksRequiredDisabledWhenCiliumDisabled(t *testing.T) {
+	originalConfig := currentConfig
+	defer func() {
+		currentConfig = originalConfig
+	}()
+
+	enabled := false
+	currentConfig = &config.Config{Platform: config.PlatformConfig{Cilium: config.CiliumConfig{Enabled: &enabled}}}
+	if gatewayChecksRequired() {
+		t.Fatalf("expected gateway checks to be skipped when cilium is disabled")
+	}
+}
+
+func TestOnlyDeferredFluxKustomizations(t *testing.T) {
+	tests := []struct {
+		name    string
+		pending []string
+		want    bool
+	}{
+		{name: "Empty", pending: nil, want: false},
+		{name: "AllDeferred", pending: []string{"helm-releases", "gateway"}, want: true},
+		{name: "ContainsNonDeferred", pending: []string{"helm-releases", "namespaces"}, want: false},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			if got := onlyDeferredFluxKustomizations(tt.pending); got != tt.want {
+				t.Fatalf("onlyDeferredFluxKustomizations() = %v, want %v", got, tt.want)
+			}
+		})
+	}
+}

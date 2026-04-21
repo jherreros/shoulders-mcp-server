@@ -11,6 +11,8 @@ import (
 	"helm.sh/helm/v3/pkg/action"
 	"helm.sh/helm/v3/pkg/chart/loader"
 	helmcli "helm.sh/helm/v3/pkg/cli"
+	"helm.sh/helm/v3/pkg/storage/driver"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/apimachinery/pkg/types"
@@ -21,10 +23,9 @@ import (
 const (
 	ciliumRepoURL   = "https://helm.cilium.io/"
 	ciliumChartName = "cilium"
-	ciliumVersion   = "1.19.2"
 )
 
-func EnsureCilium(kubeconfigPath string) error {
+func EnsureCilium(kubeconfigPath, version string) error {
 	settings := helmcli.New()
 	if kubeconfigPath != "" {
 		settings.KubeConfig = kubeconfigPath
@@ -36,7 +37,7 @@ func EnsureCilium(kubeconfigPath string) error {
 		return err
 	}
 
-	chartPath, err := locateChart(settings)
+	chartPath, err := locateChart(settings, version)
 	if err != nil {
 		return err
 	}
@@ -123,7 +124,7 @@ func EnsureCilium(kubeconfigPath string) error {
 	if releaseExists(actionConfig, ciliumChartName) {
 		upgrade := action.NewUpgrade(actionConfig)
 		upgrade.Namespace = settings.Namespace()
-		upgrade.Version = ciliumVersion
+		upgrade.Version = version
 		if _, err = upgrade.Run(ciliumChartName, chart, values); err != nil {
 			return err
 		}
@@ -134,7 +135,7 @@ func EnsureCilium(kubeconfigPath string) error {
 	install.ReleaseName = ciliumChartName
 	install.Namespace = settings.Namespace()
 	install.CreateNamespace = true
-	install.Version = ciliumVersion
+	install.Version = version
 	if _, err = install.Run(chart, values); err != nil {
 		return err
 	}
@@ -147,6 +148,26 @@ func EnsureCilium(kubeconfigPath string) error {
 	}
 	if err := waitForCiliumDaemonSet(context.Background(), clientset); err != nil {
 		return fmt.Errorf("waiting for cilium daemonset: %w", err)
+	}
+	return nil
+}
+
+func UninstallCilium(kubeconfigPath string) error {
+	settings := helmcli.New()
+	if kubeconfigPath != "" {
+		settings.KubeConfig = kubeconfigPath
+	}
+	settings.SetNamespace("kube-system")
+
+	actionConfig := new(action.Configuration)
+	if err := actionConfig.Init(settings.RESTClientGetter(), settings.Namespace(), "secret", log.Printf); err != nil {
+		return err
+	}
+
+	uninstall := action.NewUninstall(actionConfig)
+	_, err := uninstall.Run(ciliumChartName)
+	if err != nil && err != driver.ErrReleaseNotFound {
+		return err
 	}
 	return nil
 }
@@ -194,6 +215,9 @@ func waitForCiliumDaemonSet(ctx context.Context, clientset *kubernetes.Clientset
 	return wait.PollUntilContextTimeout(ctx, 2*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		daemonSet, err := clientset.AppsV1().DaemonSets("kube-system").Get(ctx, "cilium", metav1.GetOptions{})
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
 			return false, err
 		}
 
@@ -209,6 +233,9 @@ func waitForCiliumOperator(ctx context.Context, clientset *kubernetes.Clientset)
 	return wait.PollUntilContextTimeout(ctx, 2*time.Second, 5*time.Minute, true, func(ctx context.Context) (bool, error) {
 		deployment, err := clientset.AppsV1().Deployments("kube-system").Get(ctx, "cilium-operator", metav1.GetOptions{})
 		if err != nil {
+			if apierrors.IsNotFound(err) {
+				return false, nil
+			}
 			return false, err
 		}
 
@@ -224,10 +251,10 @@ func waitForCiliumOperator(ctx context.Context, clientset *kubernetes.Clientset)
 	})
 }
 
-func locateChart(settings *helmcli.EnvSettings) (string, error) {
+func locateChart(settings *helmcli.EnvSettings, version string) (string, error) {
 	chartPathOptions := &action.ChartPathOptions{
 		RepoURL: ciliumRepoURL,
-		Version: ciliumVersion,
+		Version: version,
 	}
 	return chartPathOptions.LocateChart(ciliumChartName, settings)
 }

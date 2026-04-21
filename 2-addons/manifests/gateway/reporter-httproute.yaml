@@ -8,7 +8,7 @@ spec:
     - name: cilium-gateway
       namespace: kube-system
   hostnames:
-    - reporter.localhost
+    - ${SHOULDERS_REPORTER_HOST}
   rules:
     - backendRefs:
         - name: policy-reporter-ui

@@ -16,7 +16,7 @@ spec:
     https:
       enabled: true
     config:
-      issuer: https://dex.127.0.0.1.sslip.io
+      issuer: https://${SHOULDERS_DEX_HOST}
 
       storage:
         type: memory
@@ -32,13 +32,13 @@ spec:
           name: Grafana
           secret: grafana-dex-secret
           redirectURIs:
-            - http://grafana.localhost/login/generic_oauth
+            - http://${SHOULDERS_GRAFANA_HOST}/login/generic_oauth
 
         - id: kubernetes
           name: Kubernetes
           secret: headlamp-dex-secret
           redirectURIs:
-            - http://headlamp.localhost/oidc-callback
+            - http://${SHOULDERS_HEADLAMP_HOST}/oidc-callback
 
       enablePasswordDB: true
 

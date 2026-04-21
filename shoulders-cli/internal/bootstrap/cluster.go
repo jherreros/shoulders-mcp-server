@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	loftlog "github.com/loft-sh/log"
 	vcli "github.com/loft-sh/vcluster/pkg/cli"
 	vclusterconfig "github.com/loft-sh/vcluster/pkg/cli/config"
@@ -36,7 +37,7 @@ const (
 // not already exist. vindConfig is an optional base vCluster values YAML and
 // authConfig is an optional API server auth config that is mounted into the
 // control-plane container before bootstrap.
-func EnsureVindCluster(ctx context.Context, name string, vindConfig, authConfig []byte) (err error) {
+func EnsureVindCluster(ctx context.Context, name string, vindConfig, authConfig []byte, dexHost string) (err error) {
 	exists, err := containerExists(ctx, controlPlanePrefix+name)
 	if err != nil {
 		return fmt.Errorf("check if cluster already exists: %w", err)
@@ -93,7 +94,7 @@ func EnsureVindCluster(ctx context.Context, name string, vindConfig, authConfig 
 			}
 
 			overlayPath := filepath.Join(tmpDir, "shoulders-values.yaml")
-			overlay := renderShouldersVindOverlay(authConfigHostPath)
+			overlay := renderShouldersVindOverlay(authConfigHostPath, dexHost)
 			if wErr := os.WriteFile(overlayPath, []byte(overlay), 0o644); wErr != nil {
 				return fmt.Errorf("write shoulders vind values: %w", wErr)
 			}
@@ -104,6 +105,11 @@ func EnsureVindCluster(ctx context.Context, name string, vindConfig, authConfig 
 	}
 
 	return vcli.CreateDocker(ctx, options, globalFlags, name, logger)
+}
+
+// EnsureExistingCluster validates connectivity to an already running cluster.
+func EnsureExistingCluster(ctx context.Context, kubeconfigPath string) error {
+	return kube.WaitForAPIServer(ctx, kubeconfigPath)
 }
 
 func writeClusterAuthConfig(configPath, clusterName string, authConfig []byte) (string, error) {
@@ -122,8 +128,8 @@ func clusterAuthConfigHostPath(configPath, clusterName string) string {
 	return filepath.Join(filepath.Dir(configPath), "docker", "vclusters", clusterName, clusterAuthConfigName)
 }
 
-func renderShouldersVindOverlay(authConfigHostPath string) string {
-	hosts := append(strings.Fields(dexInternalHosts), dexPublicHost)
+func renderShouldersVindOverlay(authConfigHostPath, dexHost string) string {
+	hosts := append(strings.Fields(dexInternalHosts), dexHost)
 
 	var b strings.Builder
 	b.WriteString("controlPlane:\n")
@@ -203,7 +209,6 @@ func vindContainerNames(name string) []string {
 	return []string{
 		controlPlanePrefix + name,
 		"vcluster.node." + name + ".worker-1",
-		"vcluster.node." + name + ".worker-2",
 	}
 }
 

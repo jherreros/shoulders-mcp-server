@@ -15,7 +15,7 @@ spec:
     - name: dex-https
       protocol: HTTPS
       port: 443
-      hostname: dex.127.0.0.1.sslip.io
+      hostname: ${SHOULDERS_DEX_HOST}
       tls:
         certificateRefs:
           - kind: Secret

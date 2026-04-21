@@ -8,7 +8,6 @@ import (
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/output"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 )
 
 // Version is set at build time via -ldflags.
@@ -16,6 +15,8 @@ var Version = "dev"
 
 // Commands that do not require a shoulders cluster context.
 var skipClusterCheck = map[string]bool{
+	"down":    true,
+	"init":    true,
 	"up":      true,
 	"update":  true,
 	"cluster": true,
@@ -32,11 +33,9 @@ var (
 		Short:   "Developer CLI for the Shoulders IDP",
 		Version: Version,
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load()
-			if err != nil {
+			if err := loadRuntimeConfig(); err != nil {
 				return err
 			}
-			currentConfig = cfg
 
 			if err := ensureShouldersCluster(cmd); err != nil {
 				return err
@@ -44,9 +43,11 @@ var (
 			return nil
 		},
 	}
-	currentConfig *config.Config
-	kubeconfig    string
-	outputFormat  string
+	currentConfig    *config.Config
+	kubeconfig       string
+	outputFormat     string
+	configFile       string
+	loadedConfigPath string
 )
 
 // Execute runs the root command.
@@ -58,11 +59,11 @@ func Execute() {
 }
 
 func init() {
-	cobra.OnInitialize(initConfig)
-
 	rootCmd.PersistentFlags().StringVar(&kubeconfig, "kubeconfig", "", "Path to kubeconfig file")
+	rootCmd.PersistentFlags().StringVar(&configFile, "config", defaultConfigPath(), "Path to config file")
 	rootCmd.PersistentFlags().StringVarP(&outputFormat, "output", "o", string(output.Table), "Output format: table|json|yaml")
 
+	rootCmd.AddCommand(initCmd)
 	rootCmd.AddCommand(upCmd)
 	rootCmd.AddCommand(downCmd)
 	rootCmd.AddCommand(statusCmd)
@@ -80,21 +81,59 @@ func init() {
 	rootCmd.AddCommand(skillCmd)
 }
 
-func initConfig() {
-	viper.SetEnvPrefix("SHOULDERS")
-	viper.AutomaticEnv()
-}
-
 func outputOption() (output.Format, error) {
 	return output.ParseFormat(outputFormat)
 }
 
+func loadRuntimeConfig() error {
+	path, err := config.Path(configFile)
+	if err != nil {
+		return err
+	}
+	loadedConfigPath = path
+
+	cfg, err := config.Load(path)
+	if err != nil {
+		return err
+	}
+	currentConfig = cfg
+
+	if kubeconfig == "" {
+		if envKubeconfig := os.Getenv("SHOULDERS_KUBECONFIG"); envKubeconfig != "" {
+			kubeconfig = envKubeconfig
+		} else if cfg.Cluster.Kubeconfig != "" {
+			kubeconfig = cfg.Cluster.Kubeconfig
+		}
+	}
+
+	kube.SetContextOverride(cfg.Cluster.Context)
+	return nil
+}
+
+func defaultConfigPath() string {
+	path, err := config.Path()
+	if err != nil {
+		return ""
+	}
+	return path
+}
+
 // ensureShouldersCluster verifies the current kubeconfig context belongs to
-// a Shoulders-managed vind cluster. Commands in skipClusterCheck are exempt.
+// a compatible cluster. Commands in skipClusterCheck are exempt.
 func ensureShouldersCluster(cmd *cobra.Command) error {
 	// Walk up to find the top-level subcommand name.
 	name := rootCmdName(cmd)
 	if skipClusterCheck[name] {
+		return nil
+	}
+	if currentConfig != nil && currentConfig.Provider() == config.ProviderExisting {
+		ctx, err := kube.CurrentContext(kubeconfig)
+		if err != nil {
+			return fmt.Errorf("cannot determine cluster context: %w", err)
+		}
+		if ctx == "" {
+			return fmt.Errorf("no kube context selected; set cluster.context in %q or switch kubeconfig context", loadedConfigPath)
+		}
 		return nil
 	}
 
@@ -103,7 +142,7 @@ func ensureShouldersCluster(cmd *cobra.Command) error {
 		return fmt.Errorf("cannot determine cluster context: %w", err)
 	}
 	if !ok {
-		return fmt.Errorf("current context %q is not a Shoulders cluster; switch with 'shoulders cluster use <name>' or run 'shoulders up'", ctx)
+		return fmt.Errorf("current context %q is not a Shoulders vind cluster; switch with 'shoulders cluster use <name>' or run 'shoulders up'", ctx)
 	}
 	return nil
 }
@@ -113,4 +152,21 @@ func rootCmdName(cmd *cobra.Command) string {
 		cmd = cmd.Parent()
 	}
 	return cmd.Name()
+}
+
+func configuredClusterName(cmd *cobra.Command, flagName, flagValue string) string {
+	if cmd.Flags().Changed(flagName) {
+		return flagValue
+	}
+	if currentConfig == nil {
+		return flagValue
+	}
+	return currentConfig.ClusterName()
+}
+
+func saveCurrentConfig() error {
+	if currentConfig == nil {
+		return nil
+	}
+	return config.Save(currentConfig, loadedConfigPath)
 }

@@ -19,7 +19,7 @@ spec:
                 value:
                   - ip: 10.96.0.24
                     hostnames:
-                      - dex.127.0.0.1.sslip.io
+                      - ${SHOULDERS_DEX_HOST}
   interval: 5m
   chart:
     spec:
@@ -45,11 +45,11 @@ spec:
       oidc:
         clientID: kubernetes
         clientSecret: headlamp-dex-secret
-        issuerURL: https://dex.127.0.0.1.sslip.io
+        issuerURL: https://${SHOULDERS_DEX_HOST}
         scopes: "openid,email,profile,groups"
-        callbackURL: http://headlamp.localhost/oidc-callback
+        callbackURL: http://${SHOULDERS_HEADLAMP_HOST}/oidc-callback
         validatorClientID: kubernetes
-        validatorIssuerURL: https://dex.127.0.0.1.sslip.io
+        validatorIssuerURL: https://${SHOULDERS_DEX_HOST}
         secret:
           create: false
           name: oidc

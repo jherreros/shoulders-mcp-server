@@ -19,10 +19,11 @@ var portalCmd = &cobra.Command{
 	Use:   "portal",
 	Short: "Open the Shoulders portal (Headlamp UI)",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		const headlampOIDCURL = "http://headlamp.localhost"
 		const portalPath = "/c/main/shoulders"
+		headlampOIDCURL := currentConfig.HeadlampURL()
+		headlampHost := currentConfig.HeadlampHost()
 
-		if isHostPortReachable("headlamp.localhost", "80", 1500*time.Millisecond) {
+		if isHostPortReachable(headlampHost, "80", 1500*time.Millisecond) {
 			portalURL := headlampOIDCURL + portalPath
 			cmd.Printf("Opening Shoulders portal at %s\n", portalURL)
 			cmd.Printf("Sign in with Dex users (for example: admin@example.com / password).\n")

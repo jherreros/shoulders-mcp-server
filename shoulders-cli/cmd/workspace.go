@@ -71,7 +71,7 @@ var workspaceUseCmd = &cobra.Command{
 		}
 
 		currentConfig.CurrentWorkspace = name
-		if err := config.Save(currentConfig); err != nil {
+		if err := config.Save(currentConfig, loadedConfigPath); err != nil {
 			return err
 		}
 		fmt.Printf("Active workspace set to %s\n", name)

@@ -28,11 +28,15 @@ go build -o shoulders
 
 ### Cluster Management
 ```bash
+./shoulders init --provider vind                         # Write a starter config at ~/.shoulders/config.yaml
+./shoulders init --provider existing --config ./cfg.yml # Write a starter config for an existing cluster
 ./shoulders up                        # Create and bootstrap the platform (default name: shoulders)
 ./shoulders up --verbose              # Same, with detailed per-phase progress
-./shoulders cluster list              # List running clusters
-./shoulders cluster use dev           # Switch context to 'dev' cluster
-./shoulders down --name dev           # Delete the cluster
+./shoulders --config ./cfg.yml up     # Install onto the cluster selected in a config file
+./shoulders cluster list              # List running vind clusters or kube contexts
+./shoulders cluster use dev           # Switch context to 'dev' cluster or kube context
+./shoulders down --name dev           # Delete a local vind cluster
+./shoulders --config ./cfg.yml down   # Uninstall Shoulders from an existing cluster
 ./shoulders update                    # Check for and install a new CLI version
 ```
 
@@ -67,14 +71,14 @@ go build -o shoulders
 ```bash
 ./shoulders status                    # Show cluster & platform health
 ./shoulders status --wait             # Poll until all components are healthy
-./shoulders dashboard                 # Opens grafana.localhost (falls back to localhost:3000)
-./shoulders portal                    # Opens Headlamp portal (falls back to localhost:4466)
-./shoulders reporter                  # Opens Policy Reporter UI (falls back to localhost:8082)
+./shoulders dashboard                 # Opens the configured Grafana host (defaults to grafana.localhost)
+./shoulders portal                    # Opens the configured Headlamp host (defaults to headlamp.localhost)
+./shoulders reporter                  # Opens the configured Policy Reporter host (defaults to reporter.localhost)
 ./shoulders skill install             # Install the Shoulders agent skill for AI assistants
 ./shoulders skill install --workspace # Install into the current project instead of globally
 ```
 
-`*.localhost` access requires host port `80` to be available when the cluster is created. If you changed these settings, recreate the cluster:
+The default `*.localhost` access pattern requires host port `80` to be available when the cluster is created. If you changed these settings, recreate the cluster:
 
 ```bash
 ./shoulders down
@@ -82,7 +86,40 @@ go build -o shoulders
 ```
 
 ## Configuration
-The current workspace context is stored at `~/.shoulders/config.yaml`.
+The CLI reads `~/.shoulders/config.yaml` by default, or another file via `--config`.
+
+Example schema:
+
+```yaml
+current_workspace: ""
+
+cluster:
+  provider: vind          # vind | existing
+  name: shoulders
+  kubeconfig: ""
+  context: ""
+
+platform:
+  domain: ""            # Optional suffix like lvh.me -> grafana.lvh.me, headlamp.lvh.me, dex.lvh.me
+  cilium:
+    enabled: true
+    version: "1.19.2"
+  flux:
+    gitRepository:
+      url: "https://github.com/jherreros/shoulders.git"
+      branch: "main"
+    pathPrefix: "."
+```
+
+Behavior:
+- `provider: vind` keeps the current local-cluster workflow.
+- `provider: existing` targets an already running cluster and uses `cluster.context` when set.
+- Cilium defaults to enabled for `vind` and disabled for `existing`.
+- When Cilium is disabled, Gateway route health is treated as externally managed and `up`/`status` do not block on a Cilium Gateway.
+- `platform.domain` remaps the public hosts together: `dex.<domain>`, `grafana.<domain>`, `headlamp.<domain>`, `reporter.<domain>`, `prometheus.<domain>`, `alertmanager.<domain>`, and `hubble.<domain>`.
+- `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let Flux reconcile the Shoulders manifests from a different repository, branch, or subdirectory.
+- `down` deletes the local cluster for `vind`, and removes the Flux-managed Shoulders platform for `existing`.
+- `start` and `stop` are only meaningful for local vind clusters.
 
 ## Output formats
 Use `-o table|json|yaml` for supported list and status commands.
@@ -93,9 +130,9 @@ Use `-o table|json|yaml` for supported list and status commands.
 - `shoulders up` provisions the cluster via the vCluster Go library (vind/Docker driver) and installs Cilium + Flux without running shell scripts. It pulls the Cilium chart and Flux install manifest from their upstream URLs.
 - `shoulders up --verbose` shows detailed descriptions for each bootstrap phase.
 - `shoulders up` displays a live timer, per-phase durations, and a final summary (e.g. "Shoulders platform provisioned in 04:32").
-- `shoulders reporter` opens the Policy Reporter UI at `reporter.localhost`, falling back to a local port-forward on port 8082.
+- `shoulders reporter` opens the configured Policy Reporter host, defaulting to `reporter.localhost`, and falls back to a local port-forward on port 8082.
 - `shoulders infra add-stream` supports `--partitions`, `--replicas`, and repeatable `--config key=value` entries.
 - `shoulders up` and `down` support `--name` to create/delete specifically named clusters.
 - `shoulders status --wait` polls every 3 seconds and refreshes the TUI display until all components are healthy.
 - `shoulders update` checks the latest GitHub release and self-updates the binary.
-- Commands that interact with the cluster (status, down, workspace, app, etc.) verify that the current kubeconfig context is a Shoulders-managed vind cluster. Use `shoulders cluster use <name>` to switch contexts.
+- Commands that interact with the cluster verify a Shoulders vind context when `provider: vind`, or use the configured kube context when `provider: existing`.

@@ -5,6 +5,9 @@ metadata:
   namespace: observability
 spec:
   interval: 5m
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: observability
   chart:
     spec:
       chart: loki
@@ -14,6 +17,8 @@ spec:
         namespace: flux-system
   values:
     deploymentMode: SingleBinary
+    chunksCache:
+      enabled: false
     loki:
       auth_enabled: false
       commonConfig:
@@ -29,8 +34,18 @@ spec:
             index:
               prefix: index_
               period: 24h
+    resultsCache:
+      enabled: false
     singleBinary:
       replicas: 1
+      extraVolumes:
+        - name: data
+          emptyDir: {}
+      extraVolumeMounts:
+        - name: data
+          mountPath: /var/loki
+      persistence:
+        enabled: false
     read:
       replicas: 0
     write:

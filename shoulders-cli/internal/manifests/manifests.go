@@ -19,6 +19,9 @@ var VindConfig []byte
 //go:embed authentication-config.yaml
 var AuthenticationConfig []byte
 
+//go:embed default-dex-tls-secret.yaml
+var DefaultDexTLSSecret []byte
+
 //go:embed flux/git-repository.yaml
 var FluxGitRepository []byte
 

@@ -3,6 +3,7 @@ import {
 	getCreatePath,
 	getDefaultCreateState,
 	parseListInput,
+	platformUIURL,
 	validateForm,
 } from './portalUtils';
 import { resourceConfigs } from './resourceConfigs';
@@ -49,5 +50,14 @@ describe('portalUtils', () => {
 		expect(getCreatePath(config!, 'team-a')).toBe(
 			'/apis/shoulders.io/v1alpha1/namespaces/team-a/eventstreams'
 		);
+	});
+
+	it('derives sibling platform hosts from the current headlamp domain', () => {
+		expect(platformUIURL('grafana', 'headlamp.lvh.me')).toBe('http://grafana.lvh.me');
+		expect(platformUIURL('dex', 'headlamp.lvh.me')).toBe('https://dex.lvh.me');
+	});
+
+	it('falls back to default platform hosts outside headlamp', () => {
+		expect(platformUIURL('reporter')).toBe('http://reporter.localhost');
 	});
 });

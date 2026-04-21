@@ -28,3 +28,16 @@ func Apply(ctx context.Context, client dynamic.Interface, gvr schema.GroupVersio
 	_, err = resource.Update(ctx, obj, metav1.UpdateOptions{})
 	return err
 }
+
+func Delete(ctx context.Context, client dynamic.Interface, gvr schema.GroupVersionResource, namespace, name string) error {
+	var resource dynamic.ResourceInterface = client.Resource(gvr)
+	if namespace != "" {
+		resource = client.Resource(gvr).Namespace(namespace)
+	}
+
+	err := resource.Delete(ctx, name, metav1.DeleteOptions{})
+	if errors.IsNotFound(err) {
+		return nil
+	}
+	return err
+}

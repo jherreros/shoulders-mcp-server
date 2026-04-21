@@ -5,6 +5,9 @@ metadata:
   namespace: trivy-system
 spec:
   interval: 5m
+  dependsOn:
+    - name: kube-prometheus-stack
+      namespace: observability
   chart:
     spec:
       chart: trivy-operator
@@ -14,9 +17,11 @@ spec:
         namespace: flux-system
       version: "0.32.1"
   values:
+    scanJobTTL: 1h
+    cacheReportTTL: 24h
     serviceMonitor:
       enabled: true
     trivy:
       ignoreUnfixed: true
     trivyOperator:
-      recordFailedChecksOnly: false
+      recordFailedChecksOnly: true

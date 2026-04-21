@@ -23,7 +23,7 @@ spec:
           searchNamespace: ALL
       grafana.ini:
         server:
-          root_url: http://grafana.localhost
+          root_url: http://${SHOULDERS_GRAFANA_HOST}
         auth:
           disable_login_form: false
         auth.generic_oauth:
@@ -33,7 +33,7 @@ spec:
           client_id: grafana
           client_secret: grafana-dex-secret
           scopes: openid email profile groups offline_access
-          auth_url: https://dex.127.0.0.1.sslip.io/auth
+          auth_url: https://${SHOULDERS_DEX_HOST}/auth
           token_url: http://dex.dex.svc.cluster.local:5556/token
           api_url: http://dex.dex.svc.cluster.local:5556/userinfo
           use_pkce: true
@@ -62,6 +62,8 @@ spec:
               tags: [{ key: "service.name", value: "service" }, { key: "job" }]
     prometheus:
       prometheusSpec:
+        retention: 24h
+        retentionSize: 1GiB
         serviceMonitorSelectorNilUsesHelmValues: false
         serviceMonitorSelector: {}
         serviceMonitorNamespaceSelector: {}

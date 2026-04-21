@@ -14,9 +14,10 @@ var dashboardCmd = &cobra.Command{
 	Use:   "dashboard",
 	Short: "Open Grafana dashboard",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		const grafanaOIDCURL = "http://grafana.localhost"
+		grafanaOIDCURL := currentConfig.GrafanaURL()
+		grafanaHost := currentConfig.GrafanaHost()
 
-		if isHostPortReachable("grafana.localhost", "80", 1500*time.Millisecond) {
+		if isHostPortReachable(grafanaHost, "80", 1500*time.Millisecond) {
 			cmd.Printf("Opening Grafana via Gateway OIDC at %s\n", grafanaOIDCURL)
 			cmd.Printf("Sign in with Dex users (for example: admin@example.com / password).\n")
 			if err := openBrowser(grafanaOIDCURL); err == nil {

@@ -91,6 +91,9 @@ func gatherStatus(ctx context.Context) (statusSummary, error) {
 	if err != nil {
 		fluxReady = false
 		fluxPending = []string{err.Error()}
+	} else if onlyDeferredFluxKustomizations(fluxPending) {
+		fluxReady = true
+		fluxPending = nil
 	}
 
 	// 4. Crossplane
@@ -105,47 +108,55 @@ func gatherStatus(ctx context.Context) (statusSummary, error) {
 	if err != nil {
 		return statusSummary{}, err
 	}
-	totalPods := len(podList.Items)
+	totalPods := 0
 	healthyPods := 0
 	for _, pod := range podList.Items {
+		if shouldIgnorePodForHealth(pod) {
+			continue
+		}
+		totalPods++
 		if isPodHealthy(pod) {
 			healthyPods++
 		}
 	}
 
 	// 6. Gateway
-	gwReady := false
-	gwAddr := "Pending"
-	gwProgrammed := false
-	gvrGW := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
-	gwList, err := dynamicClient.Resource(gvrGW).Namespace("kube-system").List(ctx, v1.ListOptions{})
-	if err != nil && !apierrors.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
-		return statusSummary{}, err
-	}
-	if err == nil && len(gwList.Items) > 0 {
-		gw := gwList.Items[0]
-		if status, ok := gw.Object["status"].(map[string]interface{}); ok {
-			if conditions, ok := status["conditions"].([]interface{}); ok {
-				for _, c := range conditions {
-					cond, _ := c.(map[string]interface{})
-					if fmt.Sprintf("%v", cond["type"]) == "Programmed" && fmt.Sprintf("%v", cond["status"]) == "True" {
-						gwProgrammed = true
-						gwReady = true
+	gwReady := true
+	gwAddr := "Externally managed"
+	if gatewayChecksRequired() {
+		gwReady = false
+		gwAddr = "Pending"
+		gwProgrammed := false
+		gvrGW := schema.GroupVersionResource{Group: "gateway.networking.k8s.io", Version: "v1", Resource: "gateways"}
+		gwList, err := dynamicClient.Resource(gvrGW).Namespace("kube-system").List(ctx, v1.ListOptions{})
+		if err != nil && !apierrors.IsNotFound(err) && !apimeta.IsNoMatchError(err) {
+			return statusSummary{}, err
+		}
+		if err == nil && len(gwList.Items) > 0 {
+			gw := gwList.Items[0]
+			if status, ok := gw.Object["status"].(map[string]interface{}); ok {
+				if conditions, ok := status["conditions"].([]interface{}); ok {
+					for _, c := range conditions {
+						cond, _ := c.(map[string]interface{})
+						if fmt.Sprintf("%v", cond["type"]) == "Programmed" && fmt.Sprintf("%v", cond["status"]) == "True" {
+							gwProgrammed = true
+							gwReady = true
+						}
+					}
+				}
+				if addrs, ok := status["addresses"].([]interface{}); ok && len(addrs) > 0 {
+					if addrMap, ok := addrs[0].(map[string]interface{}); ok {
+						gwAddr = fmt.Sprintf("%v", addrMap["value"])
 					}
 				}
 			}
-			if addrs, ok := status["addresses"].([]interface{}); ok && len(addrs) > 0 {
-				if addrMap, ok := addrs[0].(map[string]interface{}); ok {
-					gwAddr = fmt.Sprintf("%v", addrMap["value"])
-				}
-			}
 		}
-	}
-	if !gwProgrammed {
-		if svc, err := clientset.CoreV1().Services("kube-system").Get(ctx, "cilium-gateway-cilium-gateway", v1.GetOptions{}); err == nil {
-			if svc.Spec.Type == corev1.ServiceTypeClusterIP {
-				gwReady = true
-				gwAddr = "localhost"
+		if !gwProgrammed {
+			if svc, err := clientset.CoreV1().Services("kube-system").Get(ctx, "cilium-gateway-cilium-gateway", v1.GetOptions{}); err == nil {
+				if svc.Spec.Type == corev1.ServiceTypeClusterIP {
+					gwReady = true
+					gwAddr = "localhost"
+				}
 			}
 		}
 	}
@@ -224,6 +235,15 @@ func isPodHealthy(pod corev1.Pod) bool {
 			if cond.Type == corev1.PodReady && cond.Status == corev1.ConditionTrue {
 				return true
 			}
+		}
+	}
+	return false
+}
+
+func shouldIgnorePodForHealth(pod corev1.Pod) bool {
+	for _, owner := range pod.OwnerReferences {
+		if owner.Kind == "Job" {
+			return true
 		}
 	}
 	return false
