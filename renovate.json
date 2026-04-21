@@ -1,0 +1,67 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": [
+    "config:recommended"
+  ],
+  "labels": [
+    "dependencies"
+  ],
+  "dependencyDashboard": true,
+  "prHourlyLimit": 0,
+  "separateMajorMinor": true,
+  "npm": {
+    "rangeStrategy": "bump"
+  },
+  "flux": {
+    "fileMatch": [
+      "(^|/)2-addons/manifests/.*\\.ya?ml$"
+    ]
+  },
+  "kubernetes": {
+    "fileMatch": [
+      "(^|/)1-cluster/kind-config\\.yaml$"
+    ]
+  },
+  "customManagers": [
+    {
+      "customType": "regex",
+      "fileMatch": [
+        "(^|/)1-cluster/vind-config\\.yaml$",
+        "(^|/)shoulders-cli/internal/manifests/vind-config\\.yaml$"
+      ],
+      "matchStrings": [
+        "# renovate: datasource=(?<datasource>\\S+) depName=(?<depName>\\S+)( versioning=(?<versioning>\\S+))?\\s+version:\\s*(?<currentValue>\\S+)"
+      ],
+      "versioningTemplate": "{{#if versioning}}{{{versioning}}}{{else}}semver{{/if}}"
+    }
+  ],
+  "packageRules": [
+    {
+      "matchManagers": [
+        "github-actions"
+      ],
+      "commitMessageTopic": "{{depName}}"
+    },
+    {
+      "matchManagers": [
+        "flux"
+      ],
+      "matchDatasources": [
+        "helm"
+      ],
+      "groupName": "platform charts"
+    },
+    {
+      "matchManagers": [
+        "gomod"
+      ],
+      "groupName": "go dependencies"
+    },
+    {
+      "matchManagers": [
+        "npm"
+      ],
+      "groupName": "node dependencies"
+    }
+  ]
+}

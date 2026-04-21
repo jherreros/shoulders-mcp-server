@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
@@ -52,6 +53,11 @@ func EnsureVindCluster(ctx context.Context, name string, vindConfig, authConfig 
 	// send empty Basic auth, which GHCR rejects with 403 instead of allowing
 	// an anonymous pull. Clear such entries before proceeding.
 	ensureGHCRAccess()
+	restoreDockerConfig, err := useAnonymousDockerConfigIfNeeded()
+	if err != nil {
+		return err
+	}
+	defer restoreDockerConfig()
 
 	configPath, err := vclusterconfig.DefaultFilePath()
 	if err != nil {
@@ -170,7 +176,11 @@ func DeleteVindCluster(ctx context.Context, name string) error {
 
 	// DeleteDocker may report success without actually removing the Docker
 	// containers and volumes. Force-remove them to ensure a clean slate.
-	for _, c := range vindContainerNames(name) {
+	containers, err := vindContainerNames(ctx, name)
+	if err != nil {
+		return fmt.Errorf("list cluster containers: %w", err)
+	}
+	for _, c := range containers {
 		_ = removeContainer(ctx, c)
 		for _, suffix := range []string{".bin", ".cni-bin", ".etc", ".var"} {
 			_ = removeVolume(ctx, c+suffix)
@@ -183,7 +193,10 @@ func DeleteVindCluster(ctx context.Context, name string) error {
 // StopVindCluster stops a vind cluster by stopping its Docker containers
 // (control-plane and worker nodes) without deleting them.
 func StopVindCluster(ctx context.Context, name string) error {
-	containers := vindContainerNames(name)
+	containers, err := vindContainerNames(ctx, name)
+	if err != nil {
+		return fmt.Errorf("list cluster containers: %w", err)
+	}
 	for _, c := range containers {
 		if err := stopContainer(ctx, c); err != nil {
 			return fmt.Errorf("stop cluster %q: %w", name, err)
@@ -195,7 +208,10 @@ func StopVindCluster(ctx context.Context, name string) error {
 // StartVindCluster starts a previously stopped vind cluster by starting its
 // Docker containers (control-plane and worker nodes).
 func StartVindCluster(ctx context.Context, name string) error {
-	containers := vindContainerNames(name)
+	containers, err := vindContainerNames(ctx, name)
+	if err != nil {
+		return fmt.Errorf("list cluster containers: %w", err)
+	}
 	for _, c := range containers {
 		if err := startContainer(ctx, c); err != nil {
 			return fmt.Errorf("start cluster %q: %w", name, err)
@@ -205,11 +221,14 @@ func StartVindCluster(ctx context.Context, name string) error {
 }
 
 // vindContainerNames returns the Docker container names for a vind cluster.
-func vindContainerNames(name string) []string {
-	return []string{
-		controlPlanePrefix + name,
-		"vcluster.node." + name + ".worker-1",
+func vindContainerNames(ctx context.Context, name string) ([]string, error) {
+	names := []string{controlPlanePrefix + name}
+	workers, err := listContainerNames(ctx, "vcluster.node."+name+".")
+	if err != nil {
+		return nil, fmt.Errorf("list worker containers: %w", err)
 	}
+	sort.Strings(workers)
+	return append(names, workers...), nil
 }
 
 // ListClusters returns the names of all vind clusters by inspecting Docker
@@ -296,4 +315,68 @@ func ensureGHCRAccess() {
 		return
 	}
 	_ = os.WriteFile(configPath, append(out, '\n'), info.Mode())
+}
+
+func useAnonymousDockerConfigIfNeeded() (func(), error) {
+	if os.Getenv("DOCKER_CONFIG") != "" {
+		return func() {}, nil
+	}
+
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return func() {}, nil
+	}
+
+	configPath := filepath.Join(home, ".docker", "config.json")
+	data, err := os.ReadFile(configPath)
+	if err != nil {
+		return func() {}, nil
+	}
+
+	var cfg struct {
+		Auths      map[string]json.RawMessage `json:"auths"`
+		CredsStore string                     `json:"credsStore"`
+	}
+	if err := json.Unmarshal(data, &cfg); err != nil {
+		return func() {}, nil
+	}
+
+	if cfg.CredsStore != "desktop" {
+		return func() {}, nil
+	}
+
+	tmpDir, err := os.MkdirTemp("", "shoulders-docker-config-*")
+	if err != nil {
+		return nil, fmt.Errorf("create temp docker config dir: %w", err)
+	}
+
+	clone := map[string]json.RawMessage{}
+	auths, err := json.Marshal(cfg.Auths)
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return nil, fmt.Errorf("marshal docker auths: %w", err)
+	}
+	clone["auths"] = auths
+
+	out, err := json.MarshalIndent(clone, "", "\t")
+	if err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return nil, fmt.Errorf("marshal temp docker config: %w", err)
+	}
+
+	tmpConfigPath := filepath.Join(tmpDir, "config.json")
+	if err := os.WriteFile(tmpConfigPath, append(out, '\n'), 0o600); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return nil, fmt.Errorf("write temp docker config: %w", err)
+	}
+
+	if err := os.Setenv("DOCKER_CONFIG", tmpDir); err != nil {
+		_ = os.RemoveAll(tmpDir)
+		return nil, fmt.Errorf("set DOCKER_CONFIG: %w", err)
+	}
+
+	return func() {
+		_ = os.Unsetenv("DOCKER_CONFIG")
+		_ = os.RemoveAll(tmpDir)
+	}, nil
 }

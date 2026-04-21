@@ -13,17 +13,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           fetch-depth: 0
 
       - name: Set up Go
-        uses: actions/setup-go@v5
+        uses: actions/setup-go@v6
         with:
           go-version-file: shoulders-cli/go.mod
 
       - name: GoReleaser
-        uses: goreleaser/goreleaser-action@v6
+        uses: goreleaser/goreleaser-action@v7
         with:
           distribution: goreleaser
           version: latest
@@ -40,10 +40,10 @@ jobs:
         working-directory: shoulders-portal-plugin
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set up Node
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
           node-version: 20
           cache: npm
@@ -65,7 +65,7 @@ jobs:
         run: sha256sum shoulders-portal-plugin-*.tar.gz > shoulders-portal-plugin-checksums.txt
 
       - name: Upload plugin assets to release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           files: |
@@ -79,7 +79,7 @@ jobs:
     needs: plugin-release
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
           token: ${{ secrets.RELEASE_TOKEN }}
@@ -149,7 +149,7 @@ jobs:
     needs: artifacthub-metadata
     steps:
       - name: Checkout main
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           ref: main
 
@@ -178,7 +178,7 @@ jobs:
           RUBY
 
       - name: Create pull request for version bump
-        uses: peter-evans/create-pull-request@v7
+        uses: peter-evans/create-pull-request@v8
         with:
           token: ${{ secrets.RELEASE_TOKEN }}
           commit-message: "chore(headlamp): bump shoulders-portal plugin to ${{ github.ref_name }}"

@@ -136,11 +136,11 @@ func fluxKustomizationsManifest(pathPrefix string) []byte {
 		builder.WriteString("apiVersion: kustomize.toolkit.fluxcd.io/v1\n")
 		builder.WriteString("kind: Kustomization\n")
 		builder.WriteString("metadata:\n")
-		builder.WriteString(fmt.Sprintf("  name: %s\n", item.Name))
+		fmt.Fprintf(&builder, "  name: %s\n", item.Name)
 		builder.WriteString("  namespace: flux-system\n")
 		builder.WriteString("spec:\n")
 		builder.WriteString("  interval: 10m\n")
-		builder.WriteString(fmt.Sprintf("  path: %s\n", item.Path))
+		fmt.Fprintf(&builder, "  path: %s\n", item.Path)
 		builder.WriteString("  prune: true\n")
 		if item.Wait {
 			builder.WriteString("  wait: true\n")
@@ -152,7 +152,7 @@ func fluxKustomizationsManifest(pathPrefix string) []byte {
 			builder.WriteString("  postBuild:\n")
 			builder.WriteString("    substituteFrom:\n")
 			builder.WriteString("      - kind: ConfigMap\n")
-			builder.WriteString(fmt.Sprintf("        name: %s\n", fluxPlatformConfigName))
+			fmt.Fprintf(&builder, "        name: %s\n", fluxPlatformConfigName)
 		}
 		if len(item.DependsOn) > 0 {
 			builder.WriteString("  dependsOn:\n")

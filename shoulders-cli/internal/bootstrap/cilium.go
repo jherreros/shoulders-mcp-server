@@ -73,7 +73,7 @@ func EnsureCilium(kubeconfigPath, version string) error {
 		"envoy": map[string]interface{}{
 			"securityContext": map[string]interface{}{
 				"capabilities": map[string]interface{}{
-					"envoy":                 []string{"NET_ADMIN", "SYS_ADMIN", "NET_BIND_SERVICE"},
+					"envoy":                 []interface{}{"NET_ADMIN", "SYS_ADMIN", "NET_BIND_SERVICE"},
 					"keepCapNetBindService": true,
 				},
 			},
@@ -102,7 +102,7 @@ func EnsureCilium(kubeconfigPath, version string) error {
 			},
 			"metrics": map[string]interface{}{
 				"enableOpenMetrics": true,
-				"enabled": []string{
+				"enabled": []interface{}{
 					"dns",
 					"drop",
 					"tcp",

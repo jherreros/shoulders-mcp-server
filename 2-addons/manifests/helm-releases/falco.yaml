@@ -15,7 +15,7 @@ spec:
         kind: HelmRepository
         name: falcosecurity
         namespace: flux-system
-      version: "8.0.1"
+      version: "8.0.2"
   values:
     driver:
       kind: modern_ebpf

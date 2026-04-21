@@ -15,6 +15,7 @@ spec:
         kind: HelmRepository
         name: grafana
         namespace: flux-system
+      version: "6.55.0"
   values:
     deploymentMode: SingleBinary
     chunksCache:
