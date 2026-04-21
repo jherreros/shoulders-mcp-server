@@ -157,7 +157,7 @@ func fluxKustomizationsManifest(pathPrefix string) []byte {
 		if len(item.DependsOn) > 0 {
 			builder.WriteString("  dependsOn:\n")
 			for _, dependency := range item.DependsOn {
-				builder.WriteString(fmt.Sprintf("    - name: %s\n", dependency))
+				fmt.Fprintf(&builder, "    - name: %s\n", dependency)
 			}
 		}
 	}
