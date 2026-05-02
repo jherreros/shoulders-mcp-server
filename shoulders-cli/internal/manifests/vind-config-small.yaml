@@ -1,0 +1,23 @@
+# vCluster values for the small Shoulders profile.
+# Port mappings expose HTTP/HTTPS on the host for Dex, Grafana, and Headlamp.
+# One worker keeps local memory use lower for laptop-friendly runs.
+controlPlane:
+  distro:
+    k8s:
+      # renovate: datasource=github-tags depName=kubernetes/kubernetes versioning=semver
+      version: v1.36.0
+privateNodes:
+  joinNode:
+    nodeRegistration:
+      criSocket: unix:///run/containerd/containerd.sock
+deploy:
+  cni:
+    flannel:
+      enabled: false
+experimental:
+  docker:
+    ports:
+      - "80:80"
+      - "443:443"
+    nodes:
+      - name: worker-1

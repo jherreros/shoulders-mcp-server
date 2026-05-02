@@ -1,0 +1,4 @@
+resources:
+  - git-repository.yaml
+  - platform-config.yaml
+  - kustomizations.yaml

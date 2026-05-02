@@ -9,10 +9,15 @@ const (
 	ProviderVind     = "vind"
 	ProviderExisting = "existing"
 
+	ProfileSmall  = "small"
+	ProfileMedium = "medium"
+	ProfileLarge  = "large"
+
 	DefaultClusterName      = "shoulders"
 	DefaultCiliumVersion    = "1.19.2"
 	DefaultFluxRepoURL      = "https://github.com/jherreros/shoulders.git"
 	DefaultFluxBranch       = "main"
+	DefaultPlatformProfile  = ProfileMedium
 	DefaultDexHost          = "dex.127.0.0.1.sslip.io"
 	DefaultGrafanaHost      = "grafana.localhost"
 	DefaultHeadlampHost     = "headlamp.localhost"
@@ -36,9 +41,10 @@ type ClusterConfig struct {
 }
 
 type PlatformConfig struct {
-	Domain string       `yaml:"domain,omitempty" json:"domain,omitempty"`
-	Cilium CiliumConfig `yaml:"cilium,omitempty" json:"cilium,omitempty"`
-	Flux   FluxConfig   `yaml:"flux,omitempty" json:"flux,omitempty"`
+	Profile string       `yaml:"profile,omitempty" json:"profile,omitempty"`
+	Domain  string       `yaml:"domain,omitempty" json:"domain,omitempty"`
+	Cilium  CiliumConfig `yaml:"cilium,omitempty" json:"cilium,omitempty"`
+	Flux    FluxConfig   `yaml:"flux,omitempty" json:"flux,omitempty"`
 }
 
 type CiliumConfig struct {
@@ -69,6 +75,10 @@ func (cfg *Config) ApplyDefaults() {
 	if cfg.Cluster.Name == "" {
 		cfg.Cluster.Name = DefaultClusterName
 	}
+	cfg.Platform.Profile = normalizeProfile(cfg.Platform.Profile)
+	if cfg.Platform.Profile == "" {
+		cfg.Platform.Profile = DefaultPlatformProfile
+	}
 	if cfg.Platform.Cilium.Version == "" {
 		cfg.Platform.Cilium.Version = DefaultCiliumVersion
 	}
@@ -93,12 +103,28 @@ func (cfg *Config) Validate() error {
 			return fmt.Errorf("platform.domain must be a host suffix without a scheme or path")
 		}
 	}
+	switch cfg.Profile() {
+	case ProfileSmall, ProfileMedium, ProfileLarge:
+	default:
+		return fmt.Errorf("unsupported platform profile %q", cfg.Platform.Profile)
+	}
 	switch cfg.Provider() {
 	case ProviderVind, ProviderExisting:
 		return nil
 	default:
 		return fmt.Errorf("unsupported cluster provider %q", cfg.Cluster.Provider)
 	}
+}
+
+func (cfg *Config) Profile() string {
+	if cfg == nil {
+		return DefaultPlatformProfile
+	}
+	profile := normalizeProfile(cfg.Platform.Profile)
+	if profile == "" {
+		return DefaultPlatformProfile
+	}
+	return profile
 }
 
 func (cfg *Config) Provider() string {
@@ -229,6 +255,10 @@ func (cfg *Config) HubbleHost() string {
 	return DefaultHubbleHost
 }
 
+func normalizeProfile(profile string) string {
+	return strings.ToLower(strings.TrimSpace(profile))
+}
+
 func ExampleYAML(provider string) (string, error) {
 	providerValue := provider
 	if providerValue == "" {
@@ -255,6 +285,7 @@ func ExampleYAML(provider string) (string, error) {
 			"  kubeconfig: \"\"\n"+
 			"  context: %s\n\n"+
 			"platform:\n"+
+			"  profile: %q\n"+
 			"  domain: \"\"\n"+
 			"  cilium:\n"+
 			"    enabled: %s\n"+
@@ -266,6 +297,7 @@ func ExampleYAML(provider string) (string, error) {
 			"    pathPrefix: %q\n",
 		providerValue,
 		contextHint,
+		DefaultPlatformProfile,
 		ciliumEnabled,
 		DefaultCiliumVersion,
 		DefaultFluxRepoURL,

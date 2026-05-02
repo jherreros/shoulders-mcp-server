@@ -6,14 +6,6 @@ import (
 	"github.com/spf13/cobra"
 )
 
-var deferredFluxKustomizations = map[string]bool{
-	"helm-releases":   true,
-	"crossplane":      true,
-	"gateway":         true,
-	"policy-reporter": true,
-	"trivy-dashboard": true,
-}
-
 var namespaceOverride string
 
 func registerNamespaceFlag(cmd *cobra.Command) {
@@ -32,16 +24,4 @@ func currentNamespace() (string, error) {
 
 func gatewayChecksRequired() bool {
 	return currentConfig == nil || currentConfig.CiliumEnabled()
-}
-
-func onlyDeferredFluxKustomizations(pending []string) bool {
-	if len(pending) == 0 {
-		return false
-	}
-	for _, name := range pending {
-		if !deferredFluxKustomizations[name] {
-			return false
-		}
-	}
-	return true
 }

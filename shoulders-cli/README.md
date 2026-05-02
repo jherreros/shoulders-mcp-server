@@ -63,7 +63,7 @@ go build -o shoulders
 ./shoulders infra add-db app-db --type postgres --tier dev
 ./shoulders infra add-bucket app-assets --bucket team-a-assets --secret team-a-assets-s3
 ./shoulders infra add-stream events --topics "logs,events" --partitions 3 --replicas 3 \
-	--config cleanup.policy=compact
+  --topic-config cleanup.policy=compact
 ./shoulders infra list
 ./shoulders infra delete app-db
 ```
@@ -101,6 +101,7 @@ cluster:
   context: ""
 
 platform:
+  profile: medium       # small | medium | large
   domain: ""            # Optional suffix like lvh.me -> grafana.lvh.me, headlamp.lvh.me, dex.lvh.me
   cilium:
     enabled: true
@@ -115,6 +116,9 @@ platform:
 Behavior:
 - `provider: vind` keeps the current local-cluster workflow.
 - `provider: existing` targets an already running cluster and uses `cluster.context` when set.
+- `platform.profile` selects the platform footprint. `medium` is the default and preserves the current setup. `small` keeps the core IDP and basic Grafana/Prometheus while omitting Event Streams, Loki/Tempo/Alloy, Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer Prometheus retention.
+- Profile overlays live under `2-addons/profiles/` and are valid Flux/Kustomize paths. Non-CLI installs can apply `kubectl apply -k 2-addons/profiles/<profile>/flux` to reconcile the same profile paths from this repo.
+- The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.
 - When Cilium is disabled, Gateway route health is treated as externally managed and `up`/`status` do not block on a Cilium Gateway.
 - `platform.domain` remaps the public hosts together: `dex.<domain>`, `grafana.<domain>`, `headlamp.<domain>`, `reporter.<domain>`, `prometheus.<domain>`, `alertmanager.<domain>`, and `hubble.<domain>`.
@@ -122,18 +126,27 @@ Behavior:
 - `down` deletes the local cluster for `vind`, and removes the Flux-managed Shoulders platform for `existing`.
 - `start` and `stop` are only meaningful for local vind clusters.
 
+Profile summary:
+
+| Profile | Intended target | Local vind topology | Event Streams | Optional security/reporting |
+|---|---|---|---|---|
+| `small` | Laptops and small clusters such as 1 master + 2 CX23 workers | control plane + 1 worker | No | Kyverno admission only |
+| `medium` | Default local platform | control plane + 2 workers | Yes | Trivy, Falco, Policy Reporter |
+| `large` | Full local platform with more headroom | control plane + 3 workers | Yes | Trivy, Falco, Policy Reporter |
+
 ## Output formats
 Use `-o table|json|yaml` for supported list and status commands.
 
 ## Notes
 - `shoulders app init` supports `--dry-run` to emit YAML instead of applying it.
 - `shoulders logs` attempts a Loki query first and falls back to direct pod log streaming (no `kubectl`).
+- In `small`, `shoulders infra add-stream` and `shoulders reporter` report that the omitted capability requires `medium` or `large` instead of failing on missing services.
 - `shoulders up` provisions the cluster via the vCluster Go library (vind/Docker driver) and installs Cilium + Flux without running shell scripts. It pulls the Cilium chart and Flux install manifest from their upstream URLs.
 - `shoulders up --verbose` shows detailed descriptions for each bootstrap phase.
 - `shoulders up` displays a live timer, per-phase durations, and a final summary (e.g. "Shoulders platform provisioned in 04:32").
 - `shoulders reporter` opens the configured Policy Reporter host, defaulting to `reporter.localhost`, and falls back to a local port-forward on port 8082.
 - `shoulders infra add-bucket` creates a StateStore object bucket backed by Garage and writes S3 credentials to a workspace Secret.
-- `shoulders infra add-stream` supports `--partitions`, `--replicas`, and repeatable `--config key=value` entries.
+- `shoulders infra add-stream` supports `--partitions`, `--replicas`, and repeatable `--topic-config key=value` entries.
 - `shoulders up` and `down` support `--name` to create/delete specifically named clusters.
 - `shoulders status --wait` polls every 3 seconds and refreshes the TUI display until all components are healthy.
 - `shoulders update` checks the latest GitHub release and self-updates the binary.

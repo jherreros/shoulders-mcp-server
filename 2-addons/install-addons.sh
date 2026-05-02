@@ -6,6 +6,7 @@ set -o pipefail
 
 CILIUM_VERSION="1.19.1"
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+SHOULDERS_PROFILE="${SHOULDERS_PROFILE:-medium}"
 
 # Cilium
 helm repo add cilium https://helm.cilium.io/
@@ -36,10 +37,12 @@ then
     echo "Installing FluxCD..."
     cd "$SCRIPT_DIR"
     flux install
-    kubectl apply -f flux/
+    kubectl apply -k "profiles/${SHOULDERS_PROFILE}/flux"
 else
     echo "FluxCD already installed. Reconciling..."
-    flux reconcile kustomization flux-system --with-source
+    cd "$SCRIPT_DIR"
+    kubectl apply -k "profiles/${SHOULDERS_PROFILE}/flux"
+    flux reconcile source git flux-system
 fi
 
 echo "Waiting for Dex deployment..."

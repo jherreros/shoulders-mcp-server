@@ -1,0 +1,9 @@
+resources:
+  - ../../../manifests/namespaces
+
+patches:
+  - path: delete-falco.yaml
+  - path: delete-kafka.yaml
+  - path: delete-policy-reporter.yaml
+  - path: delete-strimzi-system.yaml
+  - path: delete-trivy-system.yaml

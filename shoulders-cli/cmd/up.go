@@ -25,6 +25,7 @@ var upCmd = &cobra.Command{
 	Short: "Create the local cluster and install platform addons",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		clusterName := configuredClusterName(cmd, "name", upClusterName)
+		profileSpec := currentConfig.ProfileSpec()
 		publicConfig := bootstrap.PublicDomainConfig{
 			DexHost:          currentConfig.DexHost(),
 			GrafanaHost:      currentConfig.GrafanaHost(),
@@ -60,8 +61,8 @@ var upCmd = &cobra.Command{
 				return fmt.Errorf("failed to connect to existing cluster: %w", err)
 			}
 		} else {
-			tracker.Start(verboseDetail("creating vind cluster %q using embedded config", clusterName))
-			if err := bootstrap.EnsureVindCluster(cmd.Context(), clusterName, manifests.VindConfig, authConfig, publicConfig.DexHost); err != nil {
+			tracker.Start(verboseDetail("creating vind cluster %q using %s profile", clusterName, profileSpec.Name))
+			if err := bootstrap.EnsureVindCluster(cmd.Context(), clusterName, manifests.VindConfigForProfile(profileSpec.Name), authConfig, publicConfig.DexHost); err != nil {
 				tracker.Fail(err.Error())
 				return fmt.Errorf("failed to create vind cluster: %w", err)
 			}
@@ -81,7 +82,7 @@ var upCmd = &cobra.Command{
 			return fmt.Errorf("failed to install gateway api crds: %w", err)
 		}
 		if currentConfig.CiliumEnabled() {
-			if err := bootstrap.EnsureCilium(kubeconfig, currentConfig.CiliumVersion()); err != nil {
+			if err := bootstrap.EnsureCilium(kubeconfig, currentConfig.CiliumVersion(), bootstrap.CiliumOptionsForProfile(profileSpec.Name)); err != nil {
 				tracker.Fail(err.Error())
 				return fmt.Errorf("failed to install cilium: %w", err)
 			}
@@ -98,6 +99,7 @@ var upCmd = &cobra.Command{
 			currentConfig.FluxRepositoryURL(),
 			currentConfig.FluxRepositoryBranch(),
 			currentConfig.FluxPathPrefix(),
+			profileSpec.Name,
 			publicConfig,
 		); err != nil {
 			tracker.Fail(err.Error())
@@ -130,12 +132,7 @@ var upCmd = &cobra.Command{
 		tracker.Complete()
 
 		// Phase 5: Platform deployments
-		deployments := []struct{ ns, name string }{
-			{"dex", "dex"},
-			{"headlamp", "headlamp"},
-			{"observability", "kube-prometheus-stack-grafana"},
-			{"policy-reporter", "policy-reporter-ui"},
-		}
+		deployments := platformDeploymentsForProfile(profileSpec)
 		tracker.Start(verboseDetail("waiting for %d deployments plus Garage object storage", len(deployments)))
 		for _, d := range deployments {
 			tracker.UpdateDetail(fmt.Sprintf("waiting for %s/%s", d.ns, d.name))
@@ -159,12 +156,7 @@ var upCmd = &cobra.Command{
 		// Phase 6: Gateway routes
 		tracker.Start(verboseDetail("resolving HTTPRoutes"))
 		if gatewayChecksRequired() {
-			routes := []struct{ ns, name string }{
-				{"dex", "dex"},
-				{"headlamp", "headlamp"},
-				{"observability", "grafana"},
-				{"policy-reporter", "policy-reporter"},
-			}
+			routes := gatewayRoutesForProfile(profileSpec)
 			for _, r := range routes {
 				tracker.UpdateDetail(fmt.Sprintf("waiting for %s/%s HTTPRoute", r.ns, r.name))
 				if err := bootstrap.WaitForHTTPRouteResolved(kubeconfig, r.ns, r.name, 5*time.Minute); err != nil {
@@ -190,6 +182,35 @@ var upCmd = &cobra.Command{
 		fmt.Println()
 		return nil
 	},
+}
+
+type namedPlatformResource struct {
+	ns   string
+	name string
+}
+
+func platformDeploymentsForProfile(profile config.ProfileSpec) []namedPlatformResource {
+	deployments := []namedPlatformResource{
+		{"dex", "dex"},
+		{"headlamp", "headlamp"},
+		{"observability", "kube-prometheus-stack-grafana"},
+	}
+	if profile.PolicyReporter {
+		deployments = append(deployments, namedPlatformResource{"policy-reporter", "policy-reporter-ui"})
+	}
+	return deployments
+}
+
+func gatewayRoutesForProfile(profile config.ProfileSpec) []namedPlatformResource {
+	routes := []namedPlatformResource{
+		{"dex", "dex"},
+		{"headlamp", "headlamp"},
+		{"observability", "grafana"},
+	}
+	if profile.PolicyReporter {
+		routes = append(routes, namedPlatformResource{"policy-reporter", "policy-reporter"})
+	}
+	return routes
 }
 
 func upPhases() []string {
@@ -233,6 +254,7 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 	// which can push the initial Flux reconciliation past 10 minutes.
 	timeout := time.After(20 * time.Minute)
 	var lastErr error
+	lastReconcileRequest := map[string]time.Time{}
 
 	for {
 		select {
@@ -247,11 +269,17 @@ func waitForFluxTUI(tracker *tui.PhaseTracker) error {
 			if ready {
 				return nil
 			}
-			// Later phases already wait on the concrete resources backed by
-			// these kustomizations, so we don't need to block here once only
-			// helm-releases (stuck on health checks) and its dependents remain.
-			if onlyDeferredFluxKustomizations(pending) {
-				return nil
+			now := time.Now()
+			for _, name := range pending {
+				if last, ok := lastReconcileRequest[name]; ok && now.Sub(last) < 30*time.Second {
+					continue
+				}
+				if err := flux.RequestKustomizationReconcile(ctx, client, "flux-system", name, now); err != nil {
+					lastErr = err
+					tracker.UpdateDetail(fmt.Sprintf("requesting %s reconcile: %v", name, err))
+					continue
+				}
+				lastReconcileRequest[name] = now
 			}
 			tracker.UpdateDetail(fmt.Sprintf("pending: %s", strings.Join(pending, ", ")))
 		case <-timeout:

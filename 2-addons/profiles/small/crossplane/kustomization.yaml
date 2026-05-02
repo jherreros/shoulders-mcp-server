@@ -1,0 +1,6 @@
+resources:
+  - ../../../manifests/crossplane
+
+patches:
+  - path: delete-event-stream-composition.yaml
+  - path: delete-event-stream-xrd.yaml

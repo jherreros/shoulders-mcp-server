@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/jherreros/shoulders/shoulders-cli/internal/config"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/runtime/schema"
@@ -25,7 +26,7 @@ var fluxKustomizationGVR = schema.GroupVersionResource{
 	Resource: "kustomizations",
 }
 
-func EnsureFlux(ctx context.Context, kubeconfigPath, repoURL, branch, pathPrefix string, publicConfig PublicDomainConfig) error {
+func EnsureFlux(ctx context.Context, kubeconfigPath, repoURL, branch, pathPrefix, profile string, publicConfig PublicDomainConfig) error {
 	manifest, err := downloadFluxManifest(ctx)
 	if err != nil {
 		return err
@@ -33,13 +34,13 @@ func EnsureFlux(ctx context.Context, kubeconfigPath, repoURL, branch, pathPrefix
 	if err := kube.ApplyManifest(ctx, kubeconfigPath, manifest, ""); err != nil {
 		return fmt.Errorf("apply flux install manifest: %w", err)
 	}
-	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxPlatformConfigManifest(publicConfig), "flux-system"); err != nil {
+	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxPlatformConfigManifest(profile, publicConfig), "flux-system"); err != nil {
 		return fmt.Errorf("apply flux platform config: %w", err)
 	}
 	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxGitRepositoryManifest(repoURL, branch), "flux-system"); err != nil {
 		return fmt.Errorf("apply flux git repository: %w", err)
 	}
-	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxKustomizationsManifest(pathPrefix), "flux-system"); err != nil {
+	if err := kube.ApplyManifest(ctx, kubeconfigPath, fluxKustomizationsManifest(pathPrefix, profile), "flux-system"); err != nil {
 		return fmt.Errorf("apply flux config: %w", err)
 	}
 	return nil
@@ -54,13 +55,15 @@ func UninstallShouldersFlux(ctx context.Context, kubeconfigPath, pathPrefix stri
 		return nil
 	}
 
-	if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxKustomizationsManifest(pathPrefix), "flux-system"); err != nil {
-		return fmt.Errorf("delete flux kustomizations: %w", err)
+	for _, profile := range []string{config.ProfileSmall, config.ProfileMedium, config.ProfileLarge} {
+		if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxKustomizationsManifest(pathPrefix, profile), "flux-system"); err != nil {
+			return fmt.Errorf("delete flux kustomizations for profile %s: %w", profile, err)
+		}
 	}
 	if err := waitForFluxKustomizationsDeleted(ctx, kubeconfigPath); err != nil {
 		return err
 	}
-	if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxPlatformConfigManifest(PublicDomainConfig{}), "flux-system"); err != nil {
+	if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxPlatformConfigManifest(config.ProfileMedium, PublicDomainConfig{}), "flux-system"); err != nil {
 		return fmt.Errorf("delete flux platform config: %w", err)
 	}
 	if err := kube.DeleteManifest(ctx, kubeconfigPath, fluxGitRepositoryManifest("", ""), "flux-system"); err != nil {
@@ -108,25 +111,8 @@ spec:
 `, repoURL, branch))
 }
 
-func fluxKustomizationsManifest(pathPrefix string) []byte {
-	type fluxKustomization struct {
-		Name      string
-		Path      string
-		DependsOn []string
-		Wait      bool
-	}
-
-	items := []fluxKustomization{
-		{Name: "helm-repositories", Path: fluxRepoPath(pathPrefix, "2-addons/manifests/helm-repositories"), Wait: true},
-		{Name: "namespaces", Path: fluxRepoPath(pathPrefix, "2-addons/manifests/namespaces"), Wait: true},
-		{Name: "crds", Path: fluxRepoPath(pathPrefix, "2-addons/manifests/crds"), Wait: true},
-		{Name: "helm-releases", Path: fluxRepoPath(pathPrefix, "2-addons/manifests/helm-releases"), Wait: true, DependsOn: []string{"helm-repositories", "namespaces", "crds", "headlamp"}},
-		{Name: "crossplane", Path: fluxRepoPath(pathPrefix, "2-addons/manifests/crossplane"), DependsOn: []string{"helm-releases"}},
-		{Name: "gateway", Path: fluxRepoPath(pathPrefix, "2-addons/manifests/gateway"), DependsOn: []string{"namespaces"}},
-		{Name: "policy-reporter", Path: fluxRepoPath(pathPrefix, "2-addons/manifests/policy-reporter"), DependsOn: []string{"helm-releases"}},
-		{Name: "trivy-dashboard", Path: fluxRepoPath(pathPrefix, "2-addons/manifests/trivy-dashboard"), DependsOn: []string{"helm-releases"}},
-		{Name: "headlamp", Path: fluxRepoPath(pathPrefix, "2-addons/manifests/headlamp"), DependsOn: []string{"namespaces"}},
-	}
+func fluxKustomizationsManifest(pathPrefix, profile string) []byte {
+	items := fluxKustomizationsForProfile(pathPrefix, profile)
 
 	var builder strings.Builder
 	for index, item := range items {
@@ -148,7 +134,7 @@ func fluxKustomizationsManifest(pathPrefix string) []byte {
 		builder.WriteString("  sourceRef:\n")
 		builder.WriteString("    kind: GitRepository\n")
 		builder.WriteString("    name: flux-system\n")
-		if item.Name == "helm-releases" || item.Name == "gateway" || item.Name == "headlamp" {
+		if item.Substitute {
 			builder.WriteString("  postBuild:\n")
 			builder.WriteString("    substituteFrom:\n")
 			builder.WriteString("      - kind: ConfigMap\n")
@@ -164,6 +150,38 @@ func fluxKustomizationsManifest(pathPrefix string) []byte {
 	return []byte(builder.String())
 }
 
+func fluxKustomizationsForProfile(pathPrefix, profile string) []fluxKustomization {
+	path := func(relativePath string) string {
+		return fluxRepoPath(pathPrefix, relativePath)
+	}
+
+	items := []fluxKustomization{
+		{Name: "helm-repositories", Path: path("2-addons/manifests/helm-repositories"), Wait: true},
+		{Name: "namespaces", Path: path("2-addons/manifests/namespaces"), Wait: true},
+		{Name: "crds", Path: path("2-addons/manifests/crds"), Wait: true},
+		{Name: "headlamp", Path: path("2-addons/manifests/headlamp"), Substitute: true, DependsOn: []string{"namespaces"}},
+		{Name: "helm-releases", Path: path("2-addons/manifests/helm-releases"), Wait: true, Substitute: true, DependsOn: []string{"helm-repositories", "namespaces", "crds", "headlamp"}},
+		{Name: "crossplane", Path: path("2-addons/manifests/crossplane"), Substitute: true, DependsOn: []string{"helm-releases"}},
+		{Name: "gateway", Path: path("2-addons/manifests/gateway"), Substitute: true, DependsOn: []string{"namespaces"}},
+		{Name: "policy-reporter", Path: path("2-addons/manifests/policy-reporter"), DependsOn: []string{"helm-releases"}},
+		{Name: "trivy-dashboard", Path: path("2-addons/manifests/trivy-dashboard"), DependsOn: []string{"helm-releases"}},
+	}
+
+	switch config.ProfileSpecFor(profile).Name {
+	case config.ProfileSmall:
+		items[0].Path = path("2-addons/profiles/small/helm-repositories")
+		items[1].Path = path("2-addons/profiles/small/namespaces")
+		items[4].Path = path("2-addons/profiles/small/helm-releases")
+		items[5].Path = path("2-addons/profiles/small/crossplane")
+		items[6].Path = path("2-addons/profiles/small/gateway")
+		return []fluxKustomization{items[0], items[1], items[2], items[3], items[4], items[5], items[6]}
+	case config.ProfileLarge:
+		items[4].Path = path("2-addons/profiles/large/helm-releases")
+	}
+
+	return items
+}
+
 func fluxRepoPath(prefix, relativePath string) string {
 	trimmed := strings.TrimSpace(prefix)
 	if trimmed == "" || trimmed == "." {
@@ -176,36 +194,66 @@ func fluxRepoPath(prefix, relativePath string) string {
 	return trimmed + "/" + relativePath
 }
 
-func fluxPlatformConfigManifest(publicConfig PublicDomainConfig) []byte {
-	return []byte(fmt.Sprintf(`apiVersion: v1
-kind: ConfigMap
-metadata:
-  name: %s
-  namespace: flux-system
-data:
-  SHOULDERS_DEX_HOST: %q
-  SHOULDERS_GRAFANA_HOST: %q
-  SHOULDERS_HEADLAMP_HOST: %q
-  SHOULDERS_REPORTER_HOST: %q
-  SHOULDERS_PROMETHEUS_HOST: %q
-  SHOULDERS_ALERTMANAGER_HOST: %q
-  SHOULDERS_HUBBLE_HOST: %q
-  SHOULDERS_DEX_TLS_CERT_B64: %q
-  SHOULDERS_DEX_TLS_KEY_B64: %q
-  SHOULDERS_DEX_CA_CERT_B64: %q
-`,
-		fluxPlatformConfigName,
-		publicConfig.DexHost,
-		publicConfig.GrafanaHost,
-		publicConfig.HeadlampHost,
-		publicConfig.ReporterHost,
-		publicConfig.PrometheusHost,
-		publicConfig.AlertmanagerHost,
-		publicConfig.HubbleHost,
-		base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.CertPEM)),
-		base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.KeyPEM)),
-		base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.CAPEM)),
-	))
+type fluxKustomization struct {
+	Name       string
+	Path       string
+	DependsOn  []string
+	Wait       bool
+	Substitute bool
+}
+
+func fluxPlatformConfigManifest(profile string, publicConfig PublicDomainConfig) []byte {
+	profileSpec := config.ProfileSpecFor(profile)
+	values := map[string]string{
+		"SHOULDERS_DEX_HOST":                  publicConfig.DexHost,
+		"SHOULDERS_GRAFANA_HOST":              publicConfig.GrafanaHost,
+		"SHOULDERS_HEADLAMP_HOST":             publicConfig.HeadlampHost,
+		"SHOULDERS_REPORTER_HOST":             publicConfig.ReporterHost,
+		"SHOULDERS_PROMETHEUS_HOST":           publicConfig.PrometheusHost,
+		"SHOULDERS_ALERTMANAGER_HOST":         publicConfig.AlertmanagerHost,
+		"SHOULDERS_HUBBLE_HOST":               publicConfig.HubbleHost,
+		"SHOULDERS_PROFILE":                   profileSpec.Name,
+		"SHOULDERS_POSTGRES_INSTANCES":        fmt.Sprintf("%d", profileSpec.PostgresInstances),
+		"SHOULDERS_KAFKA_REPLICAS":            fmt.Sprintf("%d", profileSpec.KafkaReplicas),
+		"SHOULDERS_KAFKA_MIN_ISR":             fmt.Sprintf("%d", profileSpec.KafkaMinISR),
+		"SHOULDERS_KAFKA_STORAGE":             profileSpec.KafkaStorage,
+		"SHOULDERS_PROMETHEUS_RETENTION":      profileSpec.PrometheusRetention,
+		"SHOULDERS_PROMETHEUS_RETENTION_SIZE": profileSpec.PrometheusSize,
+		"SHOULDERS_DEX_TLS_CERT_B64":          base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.CertPEM)),
+		"SHOULDERS_DEX_TLS_KEY_B64":           base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.KeyPEM)),
+		"SHOULDERS_DEX_CA_CERT_B64":           base64.StdEncoding.EncodeToString([]byte(publicConfig.TLS.CAPEM)),
+	}
+	keys := []string{
+		"SHOULDERS_DEX_HOST",
+		"SHOULDERS_GRAFANA_HOST",
+		"SHOULDERS_HEADLAMP_HOST",
+		"SHOULDERS_REPORTER_HOST",
+		"SHOULDERS_PROMETHEUS_HOST",
+		"SHOULDERS_ALERTMANAGER_HOST",
+		"SHOULDERS_HUBBLE_HOST",
+		"SHOULDERS_PROFILE",
+		"SHOULDERS_POSTGRES_INSTANCES",
+		"SHOULDERS_KAFKA_REPLICAS",
+		"SHOULDERS_KAFKA_MIN_ISR",
+		"SHOULDERS_KAFKA_STORAGE",
+		"SHOULDERS_PROMETHEUS_RETENTION",
+		"SHOULDERS_PROMETHEUS_RETENTION_SIZE",
+		"SHOULDERS_DEX_TLS_CERT_B64",
+		"SHOULDERS_DEX_TLS_KEY_B64",
+		"SHOULDERS_DEX_CA_CERT_B64",
+	}
+
+	var builder strings.Builder
+	builder.WriteString("apiVersion: v1\n")
+	builder.WriteString("kind: ConfigMap\n")
+	builder.WriteString("metadata:\n")
+	fmt.Fprintf(&builder, "  name: %s\n", fluxPlatformConfigName)
+	builder.WriteString("  namespace: flux-system\n")
+	builder.WriteString("data:\n")
+	for _, key := range keys {
+		fmt.Fprintf(&builder, "  %s: %q\n", key, values[key])
+	}
+	return []byte(builder.String())
 }
 
 func waitForFluxKustomizationsDeleted(ctx context.Context, kubeconfigPath string) error {

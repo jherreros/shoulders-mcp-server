@@ -39,6 +39,8 @@ shoulders infra add-bucket assets-demo-bucket --bucket assets-demo-files
 
 ## Full-stack: app + database + Kafka
 
+Requires `platform.profile: medium` or `platform.profile: large` because the `small` profile omits Event Streams.
+
 ```bash
 shoulders workspace create platform
 shoulders workspace use platform
@@ -71,7 +73,7 @@ shoulders infra add-db ecommerce-cache --type redis
 
 # Event streaming
 shoulders infra add-stream ecommerce-events --topics "orders,inventory,notifications" \
-  --config retention.ms=604800000
+  --topic-config retention.ms=604800000
 ```
 
 ## Dry-run to inspect generated resources

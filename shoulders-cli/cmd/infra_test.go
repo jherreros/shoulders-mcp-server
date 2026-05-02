@@ -2,6 +2,15 @@ package cmd
 
 import "testing"
 
+func TestInfraAddStreamDoesNotShadowGlobalConfigFlag(t *testing.T) {
+	if flag := infraAddStreamCmd.LocalFlags().Lookup("config"); flag != nil {
+		t.Fatalf("add-stream must not define local --config because it shadows the global config-file flag")
+	}
+	if flag := infraAddStreamCmd.Flags().Lookup("topic-config"); flag == nil {
+		t.Fatalf("expected add-stream to expose --topic-config")
+	}
+}
+
 func TestParseConfig(t *testing.T) {
 	config, err := parseConfig([]string{"cleanup.policy=compact", "retention.ms=60000"})
 	if err != nil {

@@ -14,7 +14,7 @@
 
 ## Developer workflows
 - Cluster bootstrap: `1-cluster/create-cluster.sh` creates a vind cluster named `shoulders`.
-- Platform install: `2-addons/install-addons.sh` installs Cilium via Helm, ensures Flux CLI is present, then `flux install` + `kubectl apply -f 2-addons/flux/`.
+- Platform install: `2-addons/install-addons.sh` installs Cilium via Helm, ensures Flux CLI is present, then applies `2-addons/profiles/${SHOULDERS_PROFILE:-medium}/flux` with Kustomize.
 - Observability access: README documents Grafana port-forward (`svc/kube-prometheus-stack-grafana` in `observability`).
 
 ## Conventions and integration points

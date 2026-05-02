@@ -4,10 +4,16 @@
 // Run "go generate ./..." from shoulders-cli/ to refresh them before building.
 package manifests
 
-import _ "embed"
+import (
+	_ "embed"
+
+	"github.com/jherreros/shoulders/shoulders-cli/internal/config"
+)
 
 //go:generate mkdir -p flux
 //go:generate cp ../../../1-cluster/vind-config.yaml vind-config.yaml
+//go:generate cp ../../../1-cluster/vind-config-small.yaml vind-config-small.yaml
+//go:generate cp ../../../1-cluster/vind-config-large.yaml vind-config-large.yaml
 //go:generate cp ../../../1-cluster/authentication-config.yaml authentication-config.yaml
 //go:generate cp ../../../2-addons/flux/git-repository.yaml flux/git-repository.yaml
 //go:generate cp ../../../2-addons/flux/kustomizations.yaml flux/kustomizations.yaml
@@ -15,6 +21,12 @@ import _ "embed"
 
 //go:embed vind-config.yaml
 var VindConfig []byte
+
+//go:embed vind-config-small.yaml
+var VindConfigSmall []byte
+
+//go:embed vind-config-large.yaml
+var VindConfigLarge []byte
 
 //go:embed authentication-config.yaml
 var AuthenticationConfig []byte
@@ -30,3 +42,14 @@ var FluxKustomizations []byte
 
 //go:embed gateway-api-crds.yaml
 var GatewayAPICRDs []byte
+
+func VindConfigForProfile(profile string) []byte {
+	switch profile {
+	case config.ProfileSmall:
+		return VindConfigSmall
+	case config.ProfileLarge:
+		return VindConfigLarge
+	default:
+		return VindConfig
+	}
+}

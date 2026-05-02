@@ -1,0 +1,24 @@
+apiVersion: helm.toolkit.fluxcd.io/v2
+kind: HelmRelease
+metadata:
+  name: kyverno
+  namespace: kyverno
+spec:
+  values:
+    admissionController:
+      serviceMonitor:
+        enabled: false
+    backgroundController:
+      serviceMonitor:
+        enabled: false
+    cleanupController:
+      serviceMonitor:
+        enabled: false
+    reportsController:
+      serviceMonitor:
+        enabled: false
+    features:
+      backgroundScan:
+        backgroundScanInterval: 1h
+    grafana:
+      enabled: false

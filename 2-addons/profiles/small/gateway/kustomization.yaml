@@ -1,0 +1,6 @@
+resources:
+  - ../../../manifests/gateway
+
+patches:
+  - path: delete-hubble-ui.yaml
+  - path: delete-policy-reporter.yaml

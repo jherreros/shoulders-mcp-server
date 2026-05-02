@@ -51,6 +51,10 @@ shoulders logs demo-api
 
 For more deployment patterns (multi-service, full-stack with Kafka, etc.), see [examples](./references/examples.md).
 
+## Platform Profiles
+
+Shoulders supports `platform.profile: small|medium|large` in the CLI config. `medium` is the default. The `small` profile keeps the core IDP, PostgreSQL, Redis, Garage buckets, Grafana/Prometheus, Dex, Headlamp, Crossplane, and Kyverno admission, but omits Kafka Event Streams, Loki/Tempo/Alloy, Hubble UI, Trivy, Falco, and Policy Reporter. Use `medium` or `large` for Kafka streams or Policy Reporter workflows.
+
 ## Key Commands
 
 | Task | Command |
@@ -61,7 +65,7 @@ For more deployment patterns (multi-service, full-stack with Kafka, etc.), see [
 | Add PostgreSQL | `shoulders infra add-db <name> --type postgres [--tier dev\|prod]` |
 | Add Redis | `shoulders infra add-db <name> --type redis` |
 | Add S3 bucket | `shoulders infra add-bucket <name> [--bucket bucket-name] [--secret secret-name]` |
-| Add Kafka topics | `shoulders infra add-stream <name> --topics "t1,t2" [--partitions n] [--config k=v]` |
+| Add Kafka topics | `shoulders infra add-stream <name> --topics "t1,t2" [--partitions n] [--topic-config k=v]` (`medium`/`large`) |
 | List resources | `shoulders app list` / `shoulders infra list` / `shoulders workspace list` |
 | View logs | `shoulders logs <app-name>` |
 | Check status | `shoulders status [--wait]` |
@@ -91,6 +95,10 @@ shoulders logs <name>                     # Check application logs
 ### Resource name rejected
 
 If you see a policy violation, ensure the resource name is prefixed with the workspace name. In workspace `team-a`, use names like `team-a-myapp`, not `myapp`.
+
+### Event Streams unavailable
+
+Kafka Event Streams and Policy Reporter are not installed with `platform.profile: small`. Switch to `medium` or `large`, then run `shoulders up` again before creating streams or opening the reporter dashboard.
 
 ### Cluster context issues
 

@@ -1,0 +1,9 @@
+resources:
+  - ../../../manifests/helm-repositories
+
+patches:
+  - path: delete-falcosecurity.yaml
+  - path: delete-policy-reporter.yaml
+  - path: delete-strimzi.yaml
+  - path: delete-trivy-operator-polr-adapter.yaml
+  - path: delete-trivy-operator.yaml

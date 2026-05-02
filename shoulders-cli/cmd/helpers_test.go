@@ -88,22 +88,29 @@ func TestGatewayChecksRequiredDisabledWhenCiliumDisabled(t *testing.T) {
 	}
 }
 
-func TestOnlyDeferredFluxKustomizations(t *testing.T) {
-	tests := []struct {
-		name    string
-		pending []string
-		want    bool
-	}{
-		{name: "Empty", pending: nil, want: false},
-		{name: "AllDeferred", pending: []string{"helm-releases", "gateway"}, want: true},
-		{name: "ContainsNonDeferred", pending: []string{"helm-releases", "namespaces"}, want: false},
-	}
+func TestProfileWaitTargets(t *testing.T) {
+	small := config.ProfileSpecFor(config.ProfileSmall)
+	medium := config.ProfileSpecFor(config.ProfileMedium)
 
-	for _, tt := range tests {
-		t.Run(tt.name, func(t *testing.T) {
-			if got := onlyDeferredFluxKustomizations(tt.pending); got != tt.want {
-				t.Fatalf("onlyDeferredFluxKustomizations() = %v, want %v", got, tt.want)
-			}
-		})
+	if hasNamedResource(platformDeploymentsForProfile(small), "policy-reporter", "policy-reporter-ui") {
+		t.Fatalf("small profile should not wait for policy reporter deployment")
 	}
+	if hasNamedResource(gatewayRoutesForProfile(small), "policy-reporter", "policy-reporter") {
+		t.Fatalf("small profile should not wait for policy reporter route")
+	}
+	if !hasNamedResource(platformDeploymentsForProfile(medium), "policy-reporter", "policy-reporter-ui") {
+		t.Fatalf("medium profile should wait for policy reporter deployment")
+	}
+	if !hasNamedResource(gatewayRoutesForProfile(medium), "policy-reporter", "policy-reporter") {
+		t.Fatalf("medium profile should wait for policy reporter route")
+	}
+}
+
+func hasNamedResource(resources []namedPlatformResource, namespace, name string) bool {
+	for _, resource := range resources {
+		if resource.ns == namespace && resource.name == name {
+			return true
+		}
+	}
+	return false
 }

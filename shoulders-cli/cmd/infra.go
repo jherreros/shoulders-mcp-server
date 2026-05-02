@@ -97,6 +97,10 @@ var infraAddStreamCmd = &cobra.Command{
 	Short: "Create an EventStream",
 	Args:  cobra.ExactArgs(1),
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if !currentConfig.ProfileSpec().EventStreams {
+			return fmt.Errorf("event streams require platform.profile: medium or large")
+		}
+
 		name := args[0]
 		namespace, err := currentNamespace()
 		if err != nil {
@@ -243,10 +247,13 @@ var infraListCmd = &cobra.Command{
 			return err
 		}
 
-		gvrES := schema.GroupVersionResource{Group: v1alpha1.Group, Version: v1alpha1.Version, Resource: "eventstreams"}
-		listES, err := dynamicClient.Resource(gvrES).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
-		if err != nil {
-			return err
+		listES := &unstructured.UnstructuredList{}
+		if currentConfig.ProfileSpec().EventStreams {
+			gvrES := schema.GroupVersionResource{Group: v1alpha1.Group, Version: v1alpha1.Version, Resource: "eventstreams"}
+			listES, err = dynamicClient.Resource(gvrES).Namespace(namespace).List(context.Background(), metav1.ListOptions{})
+			if err != nil {
+				return err
+			}
 		}
 
 		if format == output.Table {
@@ -297,13 +304,15 @@ var infraDeleteCmd = &cobra.Command{
 			errs = append(errs, err)
 		}
 
-		gvrES := schema.GroupVersionResource{Group: v1alpha1.Group, Version: v1alpha1.Version, Resource: "eventstreams"}
-		err = dynamicClient.Resource(gvrES).Namespace(namespace).Delete(context.Background(), name, metav1.DeleteOptions{})
-		if err == nil {
-			fmt.Printf("EventStream %s deleted\n", name)
-			deleted = true
-		} else if !strings.Contains(err.Error(), "not found") {
-			errs = append(errs, err)
+		if currentConfig.ProfileSpec().EventStreams {
+			gvrES := schema.GroupVersionResource{Group: v1alpha1.Group, Version: v1alpha1.Version, Resource: "eventstreams"}
+			err = dynamicClient.Resource(gvrES).Namespace(namespace).Delete(context.Background(), name, metav1.DeleteOptions{})
+			if err == nil {
+				fmt.Printf("EventStream %s deleted\n", name)
+				deleted = true
+			} else if !strings.Contains(err.Error(), "not found") {
+				errs = append(errs, err)
+			}
 		}
 
 		if len(errs) > 0 {
@@ -362,7 +371,7 @@ func init() {
 	infraAddStreamCmd.Flags().StringVar(&streamTopics, "topics", "", "Comma-separated topic names")
 	infraAddStreamCmd.Flags().Int32Var(&streamPartitions, "partitions", 0, "Partitions per topic (default from XRD)")
 	infraAddStreamCmd.Flags().Int32Var(&streamReplicas, "replicas", 0, "Replicas per topic (default from XRD)")
-	infraAddStreamCmd.Flags().StringArrayVar(&streamConfig, "config", nil, "Topic config entry (key=value), repeatable")
+	infraAddStreamCmd.Flags().StringArrayVar(&streamConfig, "topic-config", nil, "Topic config entry (key=value), repeatable")
 
 	registerNamespaceFlag(infraAddDbCmd)
 	registerNamespaceFlag(infraAddBucketCmd)

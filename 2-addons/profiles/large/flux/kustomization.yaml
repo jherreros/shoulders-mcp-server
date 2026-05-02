@@ -1,0 +1,6 @@
+resources:
+  - ../../../flux
+
+patches:
+  - path: platform-config.yaml
+  - path: helm-releases-kustomization.yaml

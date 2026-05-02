@@ -1,0 +1,13 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: shoulders-platform-config
+  namespace: flux-system
+data:
+  SHOULDERS_PROFILE: large
+  SHOULDERS_POSTGRES_INSTANCES: "2"
+  SHOULDERS_KAFKA_REPLICAS: "3"
+  SHOULDERS_KAFKA_MIN_ISR: "2"
+  SHOULDERS_KAFKA_STORAGE: 1Gi
+  SHOULDERS_PROMETHEUS_RETENTION: 7d
+  SHOULDERS_PROMETHEUS_RETENTION_SIZE: 5GiB

@@ -1,0 +1,12 @@
+resources:
+  - ../../../flux
+
+patches:
+  - path: platform-config.yaml
+  - path: helm-repositories-kustomization.yaml
+  - path: namespaces-kustomization.yaml
+  - path: helm-releases-kustomization.yaml
+  - path: crossplane-kustomization.yaml
+  - path: gateway-kustomization.yaml
+  - path: delete-policy-reporter-kustomization.yaml
+  - path: delete-trivy-dashboard-kustomization.yaml

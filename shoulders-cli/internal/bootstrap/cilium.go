@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/jherreros/shoulders/shoulders-cli/internal/config"
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	"helm.sh/helm/v4/pkg/action"
 	"helm.sh/helm/v4/pkg/chart/loader"
@@ -25,7 +26,20 @@ const (
 	ciliumChartName = "cilium"
 )
 
-func EnsureCilium(kubeconfigPath, version string) error {
+type CiliumOptions struct {
+	EnableHubble        bool
+	EnableObservability bool
+}
+
+func CiliumOptionsForProfile(profile string) CiliumOptions {
+	spec := config.ProfileSpecFor(profile)
+	return CiliumOptions{
+		EnableHubble:        spec.HubbleUI,
+		EnableObservability: spec.CiliumObservability,
+	}
+}
+
+func EnsureCilium(kubeconfigPath, version string, options CiliumOptions) error {
 	settings := helmcli.New()
 	if kubeconfigPath != "" {
 		settings.KubeConfig = kubeconfigPath
@@ -88,37 +102,48 @@ func EnsureCilium(kubeconfigPath, version string) error {
 			},
 		},
 		"dashboards": map[string]interface{}{
-			"enabled": true,
+			"enabled": options.EnableObservability,
 			"annotations": map[string]interface{}{
 				"grafana_folder": "Cilium",
 			},
 		},
 		"hubble": map[string]interface{}{
 			"relay": map[string]interface{}{
-				"enabled": true,
+				"enabled": options.EnableHubble,
 			},
 			"ui": map[string]interface{}{
-				"enabled": true,
-			},
-			"metrics": map[string]interface{}{
-				"enableOpenMetrics": true,
-				"enabled": []interface{}{
-					"dns",
-					"drop",
-					"tcp",
-					"flow",
-					"port-distribution",
-					"icmp",
-					"httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction",
-				},
-				"dashboards": map[string]interface{}{
-					"enabled": true,
-					"annotations": map[string]interface{}{
-						"grafana_folder": "Cilium",
-					},
-				},
+				"enabled": options.EnableHubble,
 			},
 		},
+	}
+
+	hubble := values["hubble"].(map[string]interface{})
+	if options.EnableObservability {
+		hubble["metrics"] = map[string]interface{}{
+			"enableOpenMetrics": true,
+			"enabled": []interface{}{
+				"dns",
+				"drop",
+				"tcp",
+				"flow",
+				"port-distribution",
+				"icmp",
+				"httpV2:exemplars=true;labelsContext=source_ip,source_namespace,source_workload,destination_ip,destination_namespace,destination_workload,traffic_direction",
+			},
+			"dashboards": map[string]interface{}{
+				"enabled": true,
+				"annotations": map[string]interface{}{
+					"grafana_folder": "Cilium",
+				},
+			},
+		}
+	} else {
+		hubble["metrics"] = map[string]interface{}{
+			"enabled": []interface{}{},
+			"dashboards": map[string]interface{}{
+				"enabled": false,
+			},
+		}
 	}
 
 	if releaseExists(actionConfig, ciliumChartName) {
@@ -345,9 +370,9 @@ func PatchCiliumHelmRelease(kubeconfigPath string) error {
 }
 
 // SuspendCiliumHelmRelease patches the Flux helm-releases Kustomization to
-// add an inline patch that suspends the Cilium HelmRelease. This prevents
-// the Flux helm-controller from overriding the CLI-managed Cilium
-// installation with potentially incompatible values from the Git repo.
+// remove the Cilium HelmRelease from Flux reconciliation. This prevents the
+// Flux helm-controller from overriding the CLI-managed Cilium installation
+// and keeps wait: true from blocking on a suspended HelmRelease.
 func SuspendCiliumHelmRelease(kubeconfigPath string) error {
 	client, err := kube.NewDynamicClient(kubeconfigPath)
 	if err != nil {
@@ -360,23 +385,37 @@ func SuspendCiliumHelmRelease(kubeconfigPath string) error {
 		Resource: "kustomizations",
 	}
 	ctx := context.Background()
+	kustomization, err := client.Resource(gvr).Namespace("flux-system").Get(ctx, "helm-releases", metav1.GetOptions{})
+	if err != nil {
+		return fmt.Errorf("get helm-releases kustomization: %w", err)
+	}
+
+	patches, _ := nestedSlice(kustomization.Object, "spec", "patches")
+	ciliumPatch := map[string]interface{}{
+		"target": map[string]interface{}{
+			"kind":      "HelmRelease",
+			"name":      "cilium",
+			"namespace": "kube-system",
+		},
+		"patch": ciliumHelmReleaseDeletePatch(),
+	}
+	filteredPatches := make([]interface{}, 0, len(patches)+1)
+	for _, existing := range patches {
+		patchMap, ok := existing.(map[string]interface{})
+		if !ok {
+			filteredPatches = append(filteredPatches, existing)
+			continue
+		}
+		if isCiliumHelmReleasePatch(patchMap) {
+			continue
+		}
+		filteredPatches = append(filteredPatches, existing)
+	}
+	patches = append(filteredPatches, ciliumPatch)
 
 	patch := map[string]interface{}{
 		"spec": map[string]interface{}{
-			"patches": []interface{}{
-				map[string]interface{}{
-					"target": map[string]interface{}{
-						"kind": "HelmRelease",
-						"name": "cilium",
-					},
-					"patch": `apiVersion: helm.toolkit.fluxcd.io/v2
-kind: HelmRelease
-metadata:
-  name: cilium
-spec:
-  suspend: true`,
-				},
-			},
+			"patches": patches,
 		},
 	}
 	patchBytes, err := json.Marshal(patch)
@@ -392,6 +431,23 @@ spec:
 	}
 
 	return nil
+}
+
+func ciliumHelmReleaseDeletePatch() string {
+	return "apiVersion: helm.toolkit.fluxcd.io/v2\n" +
+		"kind: HelmRelease\n" +
+		"metadata:\n" +
+		"  name: cilium\n" +
+		"  namespace: kube-system\n" +
+		"$patch: delete\n"
+}
+
+func isCiliumHelmReleasePatch(patch map[string]interface{}) bool {
+	target, ok := patch["target"].(map[string]interface{})
+	if !ok {
+		return false
+	}
+	return fmt.Sprintf("%v", target["kind"]) == "HelmRelease" && fmt.Sprintf("%v", target["name"]) == "cilium"
 }
 
 // RestartStuckPods deletes all pods stuck in Pending phase across the
@@ -438,4 +494,24 @@ func unstructuredNestedMap(obj map[string]interface{}, fields ...string) (map[st
 		current = m
 	}
 	return current, true, nil
+}
+
+func nestedSlice(obj map[string]interface{}, fields ...string) ([]interface{}, bool) {
+	current := obj
+	for index, field := range fields {
+		val, ok := current[field]
+		if !ok {
+			return nil, false
+		}
+		if index == len(fields)-1 {
+			slice, ok := val.([]interface{})
+			return slice, ok
+		}
+		next, ok := val.(map[string]interface{})
+		if !ok {
+			return nil, false
+		}
+		current = next
+	}
+	return nil, false
 }

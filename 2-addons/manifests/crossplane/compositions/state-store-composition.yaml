@@ -29,7 +29,7 @@ spec:
               name: {{ .observed.composite.resource.metadata.name | quote }}
               namespace: {{ .observed.composite.resource.metadata.namespace | quote }}
             spec:
-              instances: 2
+              instances: ${SHOULDERS_POSTGRES_INSTANCES}
               bootstrap:
                 initdb:
                   database: app

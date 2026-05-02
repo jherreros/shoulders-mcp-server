@@ -46,6 +46,9 @@ func TestConfigSaveLoad(t *testing.T) {
 	if loaded.FluxPathPrefix() != "." {
 		t.Fatalf("expected default flux path prefix '.', got %s", loaded.FluxPathPrefix())
 	}
+	if loaded.Profile() != ProfileMedium {
+		t.Fatalf("expected default platform profile %s, got %s", ProfileMedium, loaded.Profile())
+	}
 
 	configPath, err := Path()
 	if err != nil {
@@ -76,6 +79,44 @@ func TestLoadDefaultsWithoutConfigFile(t *testing.T) {
 	}
 	if loaded.DexHost() != DefaultDexHost {
 		t.Fatalf("expected default dex host %s, got %s", DefaultDexHost, loaded.DexHost())
+	}
+	if loaded.Profile() != DefaultPlatformProfile {
+		t.Fatalf("expected default profile %s, got %s", DefaultPlatformProfile, loaded.Profile())
+	}
+}
+
+func TestConfigProfileRoundTrip(t *testing.T) {
+	tmpDir := t.TempDir()
+	t.Setenv("HOME", tmpDir)
+
+	cfg := &Config{Platform: PlatformConfig{Profile: " SMALL "}}
+	if err := Save(cfg); err != nil {
+		t.Fatalf("save failed: %v", err)
+	}
+
+	loaded, err := Load()
+	if err != nil {
+		t.Fatalf("load failed: %v", err)
+	}
+	if loaded.Profile() != ProfileSmall {
+		t.Fatalf("expected profile %s, got %s", ProfileSmall, loaded.Profile())
+	}
+	if loaded.Platform.Profile != ProfileSmall {
+		t.Fatalf("expected persisted normalized profile %s, got %s", ProfileSmall, loaded.Platform.Profile)
+	}
+}
+
+func TestConfigInvalidProfile(t *testing.T) {
+	tmpDir := t.TempDir()
+	configPath := filepath.Join(tmpDir, "shoulders.yaml")
+	content := []byte("platform:\n  profile: tiny\n")
+	if err := os.WriteFile(configPath, content, 0o644); err != nil {
+		t.Fatalf("write failed: %v", err)
+	}
+
+	_, err := Load(configPath)
+	if err == nil {
+		t.Fatalf("expected invalid profile error")
 	}
 }
 
@@ -126,6 +167,9 @@ func TestExampleYAMLIsValid(t *testing.T) {
 	}
 	if cfg.Cluster.Provider != ProviderExisting {
 		t.Fatalf("expected existing provider in example, got %s", cfg.Cluster.Provider)
+	}
+	if cfg.Profile() != ProfileMedium {
+		t.Fatalf("expected medium profile in example, got %s", cfg.Profile())
 	}
 	if cfg.FluxPathPrefix() != "." {
 		t.Fatalf("expected default path prefix '.', got %s", cfg.FluxPathPrefix())

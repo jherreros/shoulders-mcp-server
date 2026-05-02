@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"fmt"
 	"os/signal"
 	"syscall"
 	"time"
@@ -14,6 +15,10 @@ var reporterCmd = &cobra.Command{
 	Use:   "reporter",
 	Short: "Open the Policy Reporter dashboard",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if !currentConfig.ProfileSpec().PolicyReporter {
+			return fmt.Errorf("policy reporter is not installed when platform.profile is %s", currentConfig.Profile())
+		}
+
 		reporterURL := currentConfig.ReporterURL()
 		reporterHost := currentConfig.ReporterHost()
 

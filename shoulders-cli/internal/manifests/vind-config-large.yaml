@@ -1,0 +1,25 @@
+# vCluster values for the large Shoulders profile.
+# Port mappings expose HTTP/HTTPS on the host for Dex, Grafana, and Headlamp.
+# Three worker nodes provide additional local capacity for the full addon set.
+controlPlane:
+  distro:
+    k8s:
+      # renovate: datasource=github-tags depName=kubernetes/kubernetes versioning=semver
+      version: v1.36.0
+privateNodes:
+  joinNode:
+    nodeRegistration:
+      criSocket: unix:///run/containerd/containerd.sock
+deploy:
+  cni:
+    flannel:
+      enabled: false
+experimental:
+  docker:
+    ports:
+      - "80:80"
+      - "443:443"
+    nodes:
+      - name: worker-1
+      - name: worker-2
+      - name: worker-3

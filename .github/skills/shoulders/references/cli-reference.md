@@ -15,6 +15,8 @@ shoulders cluster use <name>              # Switch context
 shoulders update                          # Self-update the CLI
 ```
 
+Configuration supports `platform.profile: small|medium|large`. `medium` is the default. `small` is laptop-friendly and keeps the core IDP while omitting Event Streams, Loki/Tempo/Alloy, Hubble UI, Trivy, Falco, and Policy Reporter. Use `medium` or `large` before provisioning Kafka Event Streams or opening Policy Reporter.
+
 ## Workspace Management
 
 Workspaces are isolated team environments. They are **cluster-scoped** (no namespace needed).
@@ -106,6 +108,8 @@ A bucket StateStore creates:
 
 Provision Kafka clusters and topics. **Namespace-scoped.**
 
+Requires `platform.profile: medium` or `platform.profile: large`; the `small` profile does not install Strimzi or EventStream APIs.
+
 ```bash
 shoulders infra add-stream <name> --topics <list> [flags]   # Create EventStream
 ```
@@ -117,7 +121,7 @@ shoulders infra add-stream <name> --topics <list> [flags]   # Create EventStream
 | `--topics` | *(required)* | Comma-separated topic names (e.g., `logs,events`) |
 | `--partitions` | cluster default | Partitions per topic |
 | `--replicas` | cluster default | Replication factor |
-| `--config` | — | Repeatable `key=value` Kafka topic config |
+| `--topic-config` | — | Repeatable `key=value` Kafka topic config |
 | `-n` | active workspace | Target namespace |
 
 An EventStream creates:

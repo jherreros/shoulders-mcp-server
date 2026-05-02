@@ -149,6 +149,7 @@ cluster:
   context: ""
 
 platform:
+  profile: medium        # small | medium | large
   cilium:
     enabled: true
     version: "1.19.2"
@@ -162,9 +163,20 @@ platform:
 Notes:
 - `provider: vind` preserves the current default behavior.
 - `provider: existing` skips cluster creation and targets the configured kube context.
+- `platform.profile` selects the addon footprint. `medium` is the default. `small` is laptop-friendly and suitable for a small cluster; it keeps the core IDP, basic Grafana/Prometheus, Dex, Headlamp, Crossplane, Kyverno admission, CNPG, and Garage, but omits Event Streams, Loki/Tempo/Alloy, Hubble UI, Trivy, Falco, and Policy Reporter. `large` keeps the full feature set with a larger local vind topology and longer Prometheus retention.
+- Profile overlays live under `2-addons/profiles/` and are valid Flux/Kustomize paths. Non-CLI installs can apply `kubectl apply -k 2-addons/profiles/<profile>/flux` to reconcile the same profile paths from this repo.
+- The addon install script also honors `SHOULDERS_PROFILE=small|medium|large`; for example, `SHOULDERS_PROFILE=small 2-addons/install-addons.sh` applies `2-addons/profiles/small/flux`.
 - Cilium defaults to enabled for `vind` and disabled for `existing`.
 - `platform.flux.gitRepository.url`, `branch`, and `pathPrefix` let you point Flux at a different repository, branch, or subdirectory, as long as that source contains the expected Shoulders manifests under the configured path.
 - On `provider: existing`, `shoulders down` removes the Flux-managed Shoulders platform from the current cluster. If `platform.cilium.enabled: true`, it also uninstalls the `cilium` Helm release from `kube-system`.
+
+Profile summary:
+
+| Profile | Intended target | Local vind topology | Includes Event Streams | Optional security/reporting |
+|---|---|---|---|---|
+| `small` | Laptops and small clusters | control plane + 1 worker | No | Kyverno admission only |
+| `medium` | Default local platform | control plane + 2 workers | Yes | Trivy, Falco, Policy Reporter |
+| `large` | Full local platform with more headroom | control plane + 3 workers | Yes | Trivy, Falco, Policy Reporter |
 
 ## CLI Reference
 
@@ -191,7 +203,7 @@ shoulders app delete <name>             # Delete a WebApplication
 
 shoulders infra add-db <name>           # Create a StateStore (--type postgres|redis, --tier dev|prod)
 shoulders infra add-bucket <name>       # Create a Garage S3 bucket StateStore (--bucket, --secret)
-shoulders infra add-stream <name>       # Create an EventStream (--topics, --partitions, --replicas, --config)
+shoulders infra add-stream <name>       # Create an EventStream (--topics, --partitions, --replicas, --topic-config)
 shoulders infra list                    # List StateStores and EventStreams
 shoulders infra delete <name>           # Delete an infrastructure resource
 
@@ -349,7 +361,7 @@ Shoulders comes with a pre-configured observability stack:
 - **[Tempo](https://grafana.com/oss/tempo/)** — Distributed tracing.
 - **[Grafana Alloy](https://grafana.com/oss/alloy/)** — Unified collector for logs, metrics, and traces.
 
-Local installs use a low-footprint profile for observability and reporting: Prometheus retention is capped, Loki and Tempo keep data on ephemeral storage, and scanner/report history is trimmed to keep Colima disk usage under control.
+Use `platform.profile: small` for a low-footprint install: Prometheus retention is capped, the log/trace pipeline is omitted, and scanner/reporting add-ons are not installed. `medium` and `large` include the complete observability and reporting stack.
 
 ## Security & Compliance
 

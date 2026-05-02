@@ -2,12 +2,15 @@ package flux
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"time"
 
 	"github.com/jherreros/shoulders/shoulders-cli/internal/kube"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
 	"k8s.io/apimachinery/pkg/runtime/schema"
+	"k8s.io/apimachinery/pkg/types"
 	"k8s.io/client-go/dynamic"
 )
 
@@ -44,6 +47,22 @@ func AllKustomizationsReady(ctx context.Context, client dynamic.Interface, names
 		}
 	}
 	return len(notReady) == 0, notReady, nil
+}
+
+func RequestKustomizationReconcile(ctx context.Context, client dynamic.Interface, namespace, name string, requestedAt time.Time) error {
+	patch := map[string]any{
+		"metadata": map[string]any{
+			"annotations": map[string]string{
+				"reconcile.fluxcd.io/requestedAt": requestedAt.Format(time.RFC3339Nano),
+			},
+		},
+	}
+	payload, err := json.Marshal(patch)
+	if err != nil {
+		return err
+	}
+	_, err = client.Resource(kustomizationGVR).Namespace(namespace).Patch(ctx, name, types.MergePatchType, payload, metav1.PatchOptions{})
+	return err
 }
 
 func listOptions() metav1.ListOptions {

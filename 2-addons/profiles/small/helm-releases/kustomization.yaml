@@ -1,0 +1,14 @@
+resources:
+  - ../../../manifests/helm-releases
+
+patches:
+  - path: delete-alloy.yaml
+  - path: delete-falco.yaml
+  - path: delete-loki.yaml
+  - path: delete-policy-reporter.yaml
+  - path: delete-strimzi.yaml
+  - path: delete-tempo.yaml
+  - path: delete-trivy-operator-polr-adapter.yaml
+  - path: delete-trivy-operator.yaml
+  - path: kube-prometheus-stack.yaml
+  - path: kyverno.yaml

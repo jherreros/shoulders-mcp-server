@@ -91,9 +91,6 @@ func gatherStatus(ctx context.Context) (statusSummary, error) {
 	if err != nil {
 		fluxReady = false
 		fluxPending = []string{err.Error()}
-	} else if onlyDeferredFluxKustomizations(fluxPending) {
-		fluxReady = true
-		fluxPending = nil
 	}
 
 	// 4. Crossplane

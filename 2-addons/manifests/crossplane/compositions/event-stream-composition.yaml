@@ -22,7 +22,7 @@ spec:
               apiVersion: kafka.strimzi.io/v1
               kind: KafkaNodePool
               spec:
-                replicas: 3
+                replicas: ${SHOULDERS_KAFKA_REPLICAS}
                 roles:
                   - controller
                   - broker
@@ -31,7 +31,7 @@ spec:
                   volumes:
                     - id: 0
                       type: persistent-claim
-                      size: 1Gi
+                      size: ${SHOULDERS_KAFKA_STORAGE}
                       deleteClaim: false
                       kraftMetadata: shared
             patches:
@@ -74,11 +74,11 @@ spec:
                       type: internal
                       tls: true
                   config:
-                    offsets.topic.replication.factor: 3
-                    transaction.state.log.replication.factor: 3
-                    transaction.state.log.min.isr: 2
-                    default.replication.factor: 3
-                    min.insync.replicas: 2
+                    offsets.topic.replication.factor: ${SHOULDERS_KAFKA_REPLICAS}
+                    transaction.state.log.replication.factor: ${SHOULDERS_KAFKA_REPLICAS}
+                    transaction.state.log.min.isr: ${SHOULDERS_KAFKA_MIN_ISR}
+                    default.replication.factor: ${SHOULDERS_KAFKA_REPLICAS}
+                    min.insync.replicas: ${SHOULDERS_KAFKA_MIN_ISR}
                 entityOperator:
                   topicOperator: {}
             patches:
@@ -116,7 +116,7 @@ spec:
                 strimzi.io/cluster: {{ printf "%s-cluster" $.observed.composite.resource.metadata.name | quote }}
             spec:
               partitions: {{ .partitions | default 3 }}
-              replicas: {{ .replicas | default 3 }}
+              replicas: {{ .replicas | default ${SHOULDERS_KAFKA_REPLICAS} }}
               {{ if .config }}
               config:
                 {{ range $k, $v := .config }}
